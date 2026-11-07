@@ -49,3 +49,7 @@ export async function getMeasurement(jobId) {
   if (FAKE) return (await import('./fake/fakeApi.js')).getMeasurement(jobId)
   return measurementRequest(`/api/measurements/${encodeURIComponent(jobId)}`)
 }
+
+// ---- Person D: map (#8) ----------------------------------------------------------------
+// GET /api/map → { measurements: [...], light_reports: [...] }
+export const getMap = () => request('/api/map')
