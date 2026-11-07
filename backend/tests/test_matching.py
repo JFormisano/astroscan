@@ -88,8 +88,9 @@ def test_pixel_round_trip_is_within_a_hundredth_of_a_pixel():
     assert float(y) == pytest.approx(20.0, abs=0.01)
 
 
-def test_sip_distortion_is_applied_and_round_trips():
-    header = make_tan_header(SIRIUS_RA, SIRIUS_DEC)
+def _strong_sip_header(ra, dec):
+    """TAN-SIP header whose quadratic terms diverge well outside the frame."""
+    header = make_tan_header(ra, dec)
     header["CTYPE1"] = "RA---TAN-SIP"
     header["CTYPE2"] = "DEC--TAN-SIP"
     header["A_ORDER"] = 2
@@ -100,6 +101,11 @@ def test_sip_distortion_is_applied_and_round_trips():
             header[f"B_{i}_{j}"] = 0.0
     header["A_2_0"] = 2.0e-4
     header["B_0_2"] = -1.5e-4
+    return header
+
+
+def test_sip_distortion_is_applied_and_round_trips():
+    header = _strong_sip_header(SIRIUS_RA, SIRIUS_DEC)
     wcs = matching._load_wcs(header)
     ra, dec = SIRIUS_RA + 2.0, SIRIUS_DEC + 1.0
     x, y = matching._sky_to_image(wcs, ra, dec)
@@ -110,6 +116,26 @@ def test_sip_distortion_is_applied_and_round_trips():
     again_x, again_y = matching._sky_to_image(wcs, float(back_ra), float(back_dec))
     assert float(again_x) == pytest.approx(float(x), abs=0.01)
     assert float(again_y) == pytest.approx(float(y), abs=0.01)
+
+
+def test_sip_off_frame_stars_do_not_abort_the_projection():
+    # The safety net, past the angular pre-filter. A star far from the field
+    # makes the SIP iteration diverge; the field center must still land on CRPIX.
+    wcs = matching._load_wcs(_strong_sip_header(SIRIUS_RA, SIRIUS_DEC))
+    x, y = matching._sky_to_image(wcs, [SIRIUS_RA, 0.0], [SIRIUS_DEC, 80.0])
+    assert float(x[0]) == pytest.approx((WIDTH - 1) / 2, abs=0.01)
+    assert float(y[0]) == pytest.approx((HEIGHT - 1) / 2, abs=0.01)
+    assert not (np.isfinite(x[1]) and 0.0 <= float(x[1]) < WIDTH and 0.0 <= float(y[1]) < HEIGHT)
+
+
+def test_strong_sip_omits_a_catalog_star_far_outside_the_frame():
+    # Polaris is in the catalog and far from this Sirius field. Projecting it
+    # through these SIP terms diverges; it must not crash the match or be drawn.
+    result = matching.match_stars(_strong_sip_header(SIRIUS_RA, SIRIUS_DEC), WIDTH, HEIGHT, [])
+    hips = {star["hip"] for star in result["stars"]}
+    assert SIRIUS_HIP in hips
+    assert POLARIS_HIP not in hips
+    assert all(0 <= star["x"] < WIDTH and 0 <= star["y"] < HEIGHT for star in result["stars"])
 
 
 def test_fits_pixels_are_one_based_and_y_is_not_flipped():

@@ -21,6 +21,9 @@ from pathlib import Path
 import numpy as np
 
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+# Stars farther out than this times the field's half-diagonal cannot land in
+# the frame, and a SIP polynomial fitted on the photo diverges out there.
+_FIELD_MARGIN = 1.5
 
 
 @lru_cache(maxsize=1)
@@ -119,8 +122,22 @@ def _sky_to_image(wcs, ra_deg, dec_deg):
     all_world2pix(..., 0) converts 1-based FITS pixels to 0-based image pixels.
     It does not flip y: the solver's JPEG/PNG WCS already points +y down.
     The SIP terms are applied here; wcs_world2pix would leave them out.
+
+    A SIP fit only behaves near the photo. Catalog stars on the other side of
+    the sky make the iteration diverge, and all_world2pix then raises. The
+    catalog is limited to the field neighborhood before this call. Anything
+    that still diverges comes back non-finite and the frame test drops it.
     """
-    x, y = wcs.all_world2pix(ra_deg, dec_deg, 0)
+    from astropy.wcs import NoConvergence
+
+    # An all-NaN batch (every star diverged) warns inside the iteration.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="All-NaN slice encountered", category=RuntimeWarning)
+        try:
+            x, y = wcs.all_world2pix(ra_deg, dec_deg, 0)
+        except NoConvergence as exc:
+            solution = np.atleast_2d(np.asarray(exc.best_solution, dtype=float))
+            x, y = solution[:, 0], solution[:, 1]
     return np.asarray(x, dtype=float), np.asarray(y, dtype=float)
 
 
@@ -133,10 +150,44 @@ def _image_to_sky(wcs, x, y):
 def _project_catalog(wcs, catalog, width, height):
     ra = np.array([star["ra_deg"] for star in catalog], dtype=float)
     dec = np.array([star["dec_deg"] for star in catalog], dtype=float)
-    x, y = _sky_to_image(wcs, ra, dec)
+    x = np.full(len(catalog), np.nan)
+    y = np.full(len(catalog), np.nan)
+    near = _near_field(wcs, ra, dec, width, height)
+    if np.any(near):
+        px, py = _sky_to_image(wcs, ra[near], dec[near])
+        x[near] = np.ravel(px)
+        y[near] = np.ravel(py)
     finite = np.isfinite(x) & np.isfinite(y)
     inside = finite & (x >= 0.0) & (x < width) & (y >= 0.0) & (y < height)
     return x, y, inside
+
+
+def _near_field(wcs, ra_deg, dec_deg, width, height):
+    """Catalog stars within 1.5× the field's angular half-diagonal.
+
+    The half-diagonal is the sky angle from the field center (the center
+    pixel) to the farther corner. Stars beyond the margin are left unprojected.
+    """
+    if len(ra_deg) == 0:
+        return np.zeros(0, dtype=bool)
+    from astropy.coordinates import SkyCoord
+
+    center = _sky_coord(wcs, (width - 1) / 2.0, (height - 1) / 2.0)
+    corners = _sky_coord(
+        wcs,
+        [-0.5, width - 0.5, -0.5, width - 0.5],
+        [-0.5, -0.5, height - 0.5, height - 0.5],
+    )
+    half_diagonal = float(np.max(center.separation(corners).deg))
+    stars = SkyCoord(np.asarray(ra_deg, dtype=float), np.asarray(dec_deg, dtype=float), unit="deg")
+    return center.separation(stars).deg <= _FIELD_MARGIN * half_diagonal
+
+
+def _sky_coord(wcs, x, y):
+    from astropy.coordinates import SkyCoord
+
+    ra, dec = _image_to_sky(wcs, x, y)
+    return SkyCoord(ra, dec, unit="deg")
 
 
 def _source_array(sources_xy):
