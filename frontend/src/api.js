@@ -11,41 +11,41 @@ async function request(path, options) {
 
 export const getHealth = () => request('/api/health')
 
-// --- Upload flow (Person A) -------------------------------------------------------------
-// Unlike request(), this keeps the backend's { code, message, next_step } on the thrown error
-// so pages can show a plain message and a next step.
-async function requestWithDetail(path, options) {
-  const res = await fetch(`${BASE}${path}`, options)
+// ---- Person C: measurements (upload + polling) ----------------------------------------
+// Set VITE_FAKE_API=1 in .env.local to use the dev-only fake backend in src/fake/.
+const FAKE = import.meta.env.VITE_FAKE_API === '1'
+
+// Errors carry .status (HTTP code, or 0 for network failure) so pages can pick a message.
+async function measurementRequest(path, options) {
+  let res
+  try {
+    res = await fetch(`${BASE}${path}`, options)
+  } catch {
+    const err = new Error('Network error')
+    err.status = 0
+    throw err
+  }
   if (!res.ok) {
-    let detail = {}
-    try {
-      detail = (await res.json()).detail ?? {}
-    } catch {
-      // non-JSON error body; fall through to the generic message
-    }
-    const err = new Error(detail.message ?? `Request failed (${res.status})`)
-    err.code = detail.code
-    err.nextStep = detail.next_step
+    const err = new Error(`Request failed (${res.status})`)
     err.status = res.status
     throw err
   }
   return res.json()
 }
 
-// file: File from <input type="file">. lat/lon: from browser geolocation (confirmed by the user).
-// takenAt: optional ISO string, used only if the photo's EXIF has no time.
-// Returns { job_id }.
-export function uploadMeasurement(file, { lat, lon, takenAt } = {}) {
-  const form = new FormData()
-  form.append('image', file)
-  form.append('lat', String(lat))
-  form.append('lon', String(lon))
-  if (takenAt) form.append('taken_at', takenAt)
-  // Minutes EAST of UTC (US Eastern in winter = -300); EXIF times often lack a time zone.
-  form.append('tz_offset_minutes', String(-new Date().getTimezoneOffset()))
-  return requestWithDetail('/api/measurements', { method: 'POST', body: form })
+// POST /api/measurements → { job_id }. takenAt is a Date; sent as UTC ISO 8601.
+export async function createMeasurement(file, { lat, lon, takenAt }) {
+  if (FAKE) return (await import('./fake/fakeApi.js')).createMeasurement(file)
+  const body = new FormData()
+  body.append('image', file)
+  body.append('lat', String(lat))
+  body.append('lon', String(lon))
+  body.append('taken_at', takenAt.toISOString())
+  return measurementRequest('/api/measurements', { method: 'POST', body })
 }
 
-// Returns { job_id, status: 'pending'|'solved'|'failed', step, result, error, image_url,
-// taken_at_utc, lat, lon, flags }. image_url may be relative: prefix it with the API base in prod.
-export const getMeasurement = (jobId) => requestWithDetail(`/api/measurements/${jobId}`)
+// GET /api/measurements/{job_id} → { status: pending|solved|failed, step?, result? }
+export async function getMeasurement(jobId) {
+  if (FAKE) return (await import('./fake/fakeApi.js')).getMeasurement(jobId)
+  return measurementRequest(`/api/measurements/${encodeURIComponent(jobId)}`)
+}
