@@ -16,6 +16,7 @@ frontend/dist/
 # Data we must not commit (large or licensed)
 test_photos/
 backend/data/index/
+backend/data/raw/
 *.fits
 *.axy
 *.wcs
