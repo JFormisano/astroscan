@@ -1,0 +1,31 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Data we must not commit (large or licensed)
+test_photos/
+backend/data/index/
+*.fits
+*.axy
+*.wcs
+*.corr
+*.rdls
+*.match
+*.solved
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
