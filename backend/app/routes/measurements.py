@@ -7,7 +7,6 @@ GET  /api/measurements/{job_id}/image  the stripped photo (LocalStore only; Supa
 import logging
 import os
 import tempfile
-import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -21,9 +20,6 @@ from app.errors import ApiError
 
 router = APIRouter()
 log = logging.getLogger(__name__)
-
-# One solve at a time on this machine (CLAUDE.md section 3). Waiting jobs stay `pending`.
-_solve_lock = threading.Lock()
 
 _CHUNK = 1024 * 1024
 
@@ -64,22 +60,23 @@ def run_job(store: Store, job_id: str, image_bytes: bytes) -> None:
     t0 = time.monotonic()
     tmp_path: Path | None = None
     try:
-        with _solve_lock:
-            job = store.get_job(job_id)
-            if job is None:
-                return
-            # The solver wants a file on disk; the stripped copy is small, so write a temp one.
-            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-                tmp.write(image_bytes)
-                tmp_path = Path(tmp.name)
-            taken_at = datetime.fromisoformat(job["taken_at_utc"])
-            result = solver.solve(
-                tmp_path,
-                job["lat_rounded"],
-                job["lon_rounded"],
-                taken_at,
-                on_step=lambda s: store.update_job(job_id, {"step": s}),
-            )
+        job = store.get_job(job_id)
+        if job is None:
+            return
+        # The solver wants a file on disk; the stripped copy is small, so write a temp one.
+        # (solver.solve serialises local solves itself; see solver._local_lock.)
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp.write(image_bytes)
+            tmp_path = Path(tmp.name)
+        taken_at = datetime.fromisoformat(job["taken_at_utc"])
+        result = solver.solve(
+            tmp_path,
+            job["lat_rounded"],
+            job["lon_rounded"],
+            taken_at,
+            on_step=lambda s: store.update_job(job_id, {"step": s}),
+            hints=job.get("flags") or {},
+        )
         flags = {**(job.get("flags") or {}), "solve_seconds": round(time.monotonic() - t0, 2)}
         flags["solver_used"] = result.get("solver_used", flags.get("solver_used"))
         store.update_job(job_id, {"status": "solved", "solved": True, "step": None, "result": result, "flags": flags})
