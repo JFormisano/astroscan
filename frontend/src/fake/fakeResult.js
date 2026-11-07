@@ -23,8 +23,7 @@
 //     explainer: string | null,                 // AI text (Person D), optional
 //   }
 // }
-// Failed: { status: "failed", result: { reason: "too_few_stars"|"no_match"|"timeout",
-//           stars_detected, message? } }
+// Failed (now set by Person A): top-level error: { code, message, next_step, detected_stars }
 
 const W = 1600
 const H = 1200
@@ -116,8 +115,3 @@ function makeResult() {
 }
 
 export const fakeSolved = makeResult()
-
-export const fakeFailed = {
-  reason: 'too_few_stars',
-  stars_detected: 4,
-}

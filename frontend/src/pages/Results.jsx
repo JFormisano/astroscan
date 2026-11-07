@@ -56,6 +56,6 @@ export default function Results() {
       </main>
     )
   }
-  if (job.status === 'failed') return <FailedSolve result={job.result} />
-  return <ResultView result={job.result} />
+  if (job.status === 'failed') return <FailedSolve job={job} />
+  return <ResultView job={job} />
 }

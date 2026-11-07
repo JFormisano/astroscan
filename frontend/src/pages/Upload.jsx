@@ -126,7 +126,9 @@ export default function Upload() {
       navigate(`/processing/${encodeURIComponent(job_id)}`)
     } catch (err) {
       setSending(false)
-      if (err.status === 413) setSubmitError('That photo is too large for the server. Try a smaller copy.')
+      // The backend's own wording first (app/errors.py: message + next step), then our fallbacks.
+      if (err.userMessage) setSubmitError([err.userMessage, err.nextStep].filter(Boolean).join(' '))
+      else if (err.status === 413) setSubmitError('That photo is too large for the server. Try a smaller copy.')
       else if (err.status === 415) setSubmitError("The server couldn't read that file type. Try a JPEG.")
       else if (err.status === 0) setSubmitError("Couldn't reach the server. Check your connection and try again.")
       else setSubmitError('Something went wrong uploading your photo. Please try again.')
