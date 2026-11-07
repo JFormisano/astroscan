@@ -17,6 +17,7 @@ def store(tmp_path):
 
 @pytest.fixture
 def client(store, monkeypatch):
+    monkeypatch.setenv("SOLVER_MODE", "stub")
     monkeypatch.setattr(solver, "STUB_DELAY_S", 0)
     app.dependency_overrides[get_store] = lambda: store
     yield TestClient(app)

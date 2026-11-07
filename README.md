@@ -22,6 +22,17 @@ npm install
 npm run dev
 ```
 
+## Run the solver in Docker (plate solving, feature #2)
+The real star matching uses astrometry.net's `solve-field`, which only exists in the Docker image (it downloads ~46 MB of index files on the first build). Without it the backend falls back to the public astrometry.net API (needs `ASTROMETRY_API_KEY` in `backend/.env`), or set `SOLVER_MODE=stub` for a fake result.
+```
+docker build -t astroscan-backend backend
+docker run --rm -p 8000:8000 --env-file backend/.env astroscan-backend
+
+# real-photo tests (photos live in git-ignored test_photos/, see docs/solver-output.md)
+docker run --rm -v "$PWD/test_photos:/photos:ro" -v "$PWD/backend/tests:/srv/tests:ro" -e TEST_PHOTOS_DIR=/photos astroscan-backend python -m pytest tests/test_solver_integration.py -s
+```
+What the solver returns and how pixels map to the sky: [docs/solver-output.md](docs/solver-output.md).
+
 ## Layout
 - `frontend/` React + Vite. Pages in `src/pages/`, components in `src/components/`, all backend calls in `src/api.js`.
 - `backend/` FastAPI. `app/` modules, `data/` star catalog and constellation lines, `demo_cache/` pre-solved results (never delete), `tests/`.
