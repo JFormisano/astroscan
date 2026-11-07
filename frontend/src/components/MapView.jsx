@@ -29,7 +29,7 @@ function measurementPopup(m) {
 
 function reportPopup(r) {
   const note = r.note ? `<br>${escapeHtml(r.note)}` : ''
-  return `<strong>Light report: ${escapeHtml(r.category || 'light')}</strong>${note}`
+  return `<strong>Light report: ${escapeHtml(r.category_label || r.category || 'light')}</strong>${note}`
 }
 
 export default function MapView({ measurements = [], reports = [] }) {

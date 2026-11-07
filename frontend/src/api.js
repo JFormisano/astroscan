@@ -77,3 +77,37 @@ export const getMap = () => request('/api/map')
 // ---- Person D: demo mode (#11) ---------------------------------------------------------
 // GET /api/demo/{name} → a cached result, same shape as getMeasurement(). Errors carry .status.
 export const getDemo = (name) => measurementRequest(`/api/demo/${encodeURIComponent(name)}`)
+
+// ---- Person D: light reports (#9) ------------------------------------------------------
+// POST /api/light-reports → the saved report incl. drafted_message and draft_source ("ai" | "template").
+// Errors carry .status (0 = network) and .detail ({ code, message, next_step }) when the backend sent one.
+export async function createLightReport({ lat, lon, category, controller, note, photo }) {
+  const body = new FormData()
+  body.append('lat', String(lat))
+  body.append('lon', String(lon))
+  body.append('category', category)
+  body.append('controller', controller)
+  if (note) body.append('note', note)
+  if (photo) body.append('photo', photo)
+
+  let res
+  try {
+    res = await fetch(`${BASE}/api/light-reports`, { method: 'POST', body })
+  } catch {
+    const err = new Error('Network error')
+    err.status = 0
+    throw err
+  }
+  if (!res.ok) {
+    const err = new Error(`Request failed (${res.status})`)
+    err.status = res.status
+    try {
+      const detail = (await res.json()).detail
+      if (detail && typeof detail === 'object' && detail.message) err.detail = detail
+    } catch {
+      // not JSON: keep the generic error
+    }
+    throw err
+  }
+  return res.json()
+}
