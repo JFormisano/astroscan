@@ -37,14 +37,18 @@ export default function ScoreCard({ score }) {
         ))}
       </div>
       <dl className="facts">
-        <div>
-          <dt>Stars lost to light</dt>
-          <dd>{Math.round(score.pct_lost)}%</dd>
-        </div>
-        <div>
-          <dt>Faintest stars seen</dt>
-          <dd>mag {score.limiting_mag.toFixed(1)}</dd>
-        </div>
+        {typeof score.pct_lost === 'number' && (
+          <div>
+            <dt>Stars lost to light</dt>
+            <dd>{Math.round(score.pct_lost)}%</dd>
+          </div>
+        )}
+        {typeof score.limiting_mag === 'number' && (
+          <div>
+            <dt>Faintest stars seen</dt>
+            <dd>mag {score.limiting_mag.toFixed(1)}</dd>
+          </div>
+        )}
       </dl>
       <p className="muted small">
         Your sky as your phone saw it. This is an estimate, calibrated from our own photos; your camera&apos;s

@@ -16,6 +16,8 @@ export const getHealth = () => request('/api/health')
 const FAKE = import.meta.env.VITE_FAKE_API === '1'
 
 // Errors carry .status (HTTP code, or 0 for network failure) so pages can pick a message.
+// When the backend sends {"detail": {code, message, next_step}} (app/errors.py), they also
+// carry .code, .userMessage and .nextStep, which pages show as-is.
 async function measurementRequest(path, options) {
   let res
   try {
@@ -28,12 +30,27 @@ async function measurementRequest(path, options) {
   if (!res.ok) {
     const err = new Error(`Request failed (${res.status})`)
     err.status = res.status
+    try {
+      const detail = (await res.json())?.detail
+      if (detail && typeof detail === 'object') {
+        err.code = detail.code
+        err.userMessage = detail.message
+        err.nextStep = detail.next_step
+      }
+    } catch {
+      // Not JSON (e.g. a proxy error page): status alone will do.
+    }
     throw err
   }
   return res.json()
 }
 
+// Turns a backend-relative path (LocalStore serves /api/measurements/{id}/image) into a URL
+// the browser can load in production too. Absolute URLs (Supabase storage) pass through.
+export const apiUrl = (path) => (path && path.startsWith('/') ? `${BASE}${path}` : path)
+
 // POST /api/measurements → { job_id }. takenAt is a Date; sent as UTC ISO 8601.
+// The backend prefers the EXIF time; taken_at + tz_offset_minutes are its fallback.
 export async function createMeasurement(file, { lat, lon, takenAt }) {
   if (FAKE) return (await import('./fake/fakeApi.js')).createMeasurement(file)
   const body = new FormData()
@@ -41,10 +58,13 @@ export async function createMeasurement(file, { lat, lon, takenAt }) {
   body.append('lat', String(lat))
   body.append('lon', String(lon))
   body.append('taken_at', takenAt.toISOString())
+  // Minutes EAST of UTC at the photo's time (so DST is right for that date).
+  body.append('tz_offset_minutes', String(-takenAt.getTimezoneOffset()))
   return measurementRequest('/api/measurements', { method: 'POST', body })
 }
 
-// GET /api/measurements/{job_id} → { status: pending|solved|failed, step?, result? }
+// GET /api/measurements/{job_id} → { job_id, status, step, result, error, image_url, flags, ... }
+// See the API table in CLAUDE.md §3. Pages normalize it with lib/resultView.js.
 export async function getMeasurement(jobId) {
   if (FAKE) return (await import('./fake/fakeApi.js')).getMeasurement(jobId)
   return measurementRequest(`/api/measurements/${encodeURIComponent(jobId)}`)
