@@ -17,6 +17,7 @@ frontend/dist/
 test_photos/
 backend/storage/
 backend/data/index/
+backend/data/raw/
 *.fits
 *.axy
 *.wcs
@@ -25,8 +26,13 @@ backend/data/index/
 *.match
 *.solved
 
+# Solved photos for the overlay check. Not ours to commit.
+backend/tests/fixtures/*
+!backend/tests/fixtures/.gitkeep
+
 # OS / editor
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+backend/overlay_check.png
