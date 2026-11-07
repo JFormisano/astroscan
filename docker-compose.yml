@@ -1,0 +1,55 @@
+# Whole app on your own PC:   docker compose up --build      then open http://localhost:8080
+#
+#   frontend  http://localhost:8080   built React app behind nginx; /api is proxied to the backend
+#   backend   http://localhost:8000   FastAPI + solve-field (+ API docs at /docs)
+#
+# Optional: copy backend/.env.example to backend/.env to add keys (nova fallback, Supabase, AI).
+# It works without one: the local solver needs no key. Job data lives in the `storage` volume.
+#
+# Real-photo solver tests:        docker compose --profile test run --rm tests
+name: astroscan
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      # Set here (not in .env) so an empty value in .env can never override the image's solver paths.
+      STORAGE_DIR: /srv/storage
+      ASTROMETRY_INDEX_DIR: /data/index
+      ASTROMETRY_CONFIG: /srv/astrometry.cfg
+      FRONTEND_ORIGINS: http://localhost:8080,http://localhost:5173
+    volumes:
+      - storage:/srv/storage
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Runs ALL backend tests inside the image, including the real solve-field ones.
+  # Needs test photos in ./test_photos (git-ignored; see docs/solver-output.md). Without them
+  # those tests skip themselves.
+  tests:
+    profiles: ["test"]
+    build: ./backend
+    working_dir: /srv
+    volumes:
+      - ./backend/tests:/srv/tests:ro
+      - ./test_photos:/photos:ro
+    environment:
+      TEST_PHOTOS_DIR: /photos
+      PYTHONDONTWRITEBYTECODE: "1"
+    command: ["python", "-m", "pytest", "tests", "-q", "-p", "no:cacheprovider", "-rs"]
+
+volumes:
+  storage:

@@ -1,0 +1,39 @@
+# Render Blueprint for the BACKEND (the frontend goes on Vercel, see docs/deploy.md).
+# Render -> New -> Blueprint -> pick this repo. It builds backend/Dockerfile (solve-field + index
+# files are baked into the image), asks you once for the secrets marked sync: false, and keeps the
+# service always on. Plan IDs and fields checked against Render's blueprint spec (Nov 2026).
+services:
+  - type: web
+    name: astroscan-backend
+    runtime: docker
+    region: ohio
+    # solve-field is single-threaded and CPU-bound: a solve takes ~40 s on a fast core, so a
+    # 0.5 CPU plan (`0.5c-512mb`) would roughly double that. 1 CPU / 2 GB leaves headroom (the
+    # container peaked at ~290 MiB including file cache). Never use `free`: it sleeps and is 0.1 CPU.
+    plan: 1c-2g
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: SOLVER_MODE
+        value: auto
+      - key: LOCAL_SOLVE_TIMEOUT_S
+        value: "120"
+      - key: API_SOLVE_TIMEOUT_S
+        value: "240"
+      - key: MAX_UPLOAD_MB
+        value: "15"
+      # The exact Vercel URL(s), comma-separated, no trailing slash: https://astroscan.vercel.app
+      - key: FRONTEND_ORIGINS
+        sync: false
+      # Without these two, jobs are kept on the instance's disk and are lost on every redeploy.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      # Optional fallback solver and (later) the AI explainer.
+      - key: ASTROMETRY_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

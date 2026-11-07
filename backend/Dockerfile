@@ -20,8 +20,11 @@ RUN mkdir -p /data/index && cd /data/index \
 
 # Our own solve-field config, passed explicitly with --config so we don't depend on Debian's.
 RUN printf 'add_path /data/index\nautoindex\ncpulimit 300\n' > /srv/astrometry.cfg
+# STORAGE_DIR: where photos and job files go when Supabase isn't configured. Mount a volume
+# there to keep them across restarts (docker-compose.yml does).
 ENV ASTROMETRY_INDEX_DIR=/data/index \
-    ASTROMETRY_CONFIG=/srv/astrometry.cfg
+    ASTROMETRY_CONFIG=/srv/astrometry.cfg \
+    STORAGE_DIR=/srv/storage
 
 WORKDIR /srv
 COPY requirements.txt .
@@ -29,6 +32,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY data ./data
 COPY demo_cache ./demo_cache
+
+# Lets `docker compose` wait for the backend and lets hosts restart a stuck container.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS "http://127.0.0.1:${PORT:-8000}/api/health" || exit 1
 
 # One worker, one solve at a time (see CLAUDE.md section 3).
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]

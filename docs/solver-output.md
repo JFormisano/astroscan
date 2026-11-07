@@ -59,9 +59,10 @@ All set `error.message` and `error.next_step` (plain text, show them as is) and 
 `LOCAL_SOLVE_TIMEOUT_S` (90), `API_SOLVE_TIMEOUT_S` (240), `ASTROMETRY_API_KEY`, `ASTROMETRY_INDEX_DIR`, `ASTROMETRY_CONFIG`.
 
 ## Measured on two openly licensed Commons photos (Docker Desktop on a dev laptop)
+These are the solver alone on files that were already resized. **Through the real app the Sand Dunes photo takes 40–42 s** (the upload re-encodes the JPEG once more, and the added compression noise slows the engine step), so quote the end-to-end number.
 | photo | size | solve time | matched stars | field |
 |---|---|---|---|---|
 | Big Dipper over Great Sand Dunes (NPS, public domain) | 2048×1509 | 16 s | 94 | 62.8°×48.7° |
 | Big Dipper over Sandvik (CC0) | 1536×2048 | 24 s | 126 | 45.8°×59.4° |
 
-A third photo (a re-processed Flickr image of the Big Dipper) did **not** solve within 75 s, which is the "no match" path working as designed. Star extraction (6–18 s) dominates because these photos have 7–10k noise detections.
+A third photo (a re-processed Flickr image of the Big Dipper) did **not** solve within the 75 s CPU limit used in that early test; today that is reported as `solve_timeout` (or `no_match` if the search finishes without a match). Star extraction (6–18 s) dominates because these photos have 7–10k noise detections.
