@@ -1,4 +1,5 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import Demo from './pages/Demo.jsx'
 import Landing from './pages/Landing.jsx'
 import LightReport from './pages/LightReport.jsx'
 import Map from './pages/Map.jsx'
@@ -14,6 +15,7 @@ export default function App() {
         <Route path="/upload" element={<Upload />} />
         <Route path="/processing/:jobId" element={<Processing />} />
         <Route path="/results/:jobId" element={<Results />} />
+        <Route path="/demo/:name" element={<Demo />} />
         <Route path="/map" element={<Map />} />
         <Route path="/light-report" element={<LightReport />} />
       </Routes>

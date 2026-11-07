@@ -53,3 +53,7 @@ export async function getMeasurement(jobId) {
 // ---- Person D: map (#8) ----------------------------------------------------------------
 // GET /api/map → { measurements: [...], light_reports: [...] }
 export const getMap = () => request('/api/map')
+
+// ---- Person D: demo mode (#11) ---------------------------------------------------------
+// GET /api/demo/{name} → a cached result, same shape as getMeasurement(). Errors carry .status.
+export const getDemo = (name) => measurementRequest(`/api/demo/${encodeURIComponent(name)}`)
