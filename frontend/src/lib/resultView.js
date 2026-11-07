@@ -25,15 +25,34 @@ export function toView(job) {
     imageUrl,
     stars,
     constellations: Array.isArray(r.constellations) ? r.constellations : [],
-    planets: Array.isArray(r.planets) ? r.planets : [],
+    // Only planets the backend placed on the photo (pixel x/y inside the frame).
+    planets: (Array.isArray(r.planets) ? r.planets : []).filter(
+      (p) => Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= 0 && p.y >= 0 &&
+        (!width || p.x < width) && (!height || p.y < height) && p.above_horizon !== false,
+    ),
     sources: Array.isArray(r.sources) ? r.sources : [],
-    warnings: Array.isArray(r.warnings) ? r.warnings : [],
+    warnings: toWarnings(r),
     score: r.score && typeof r.score.value === 'number' ? r.score : null,
     stats: hasStats ? stats : null,
     explainer: typeof r.explainer === 'string' ? r.explainer : null,
     // True once Person B's matching has run (catalog stars projected into the photo).
     analyzed: stars.length > 0,
   }
+}
+
+// Warnings as the banner wants them: [{ type: twilight|moon|low_altitude, moon_illumination_pct? }].
+// Accepts that list (proposed schema) or Person B's evaluate_conditions() output passed through
+// as result.conditions ({ flags: { twilight, moon_up, low_altitude }, moon_illumination_pct }).
+// Which one the result uses is still to be agreed; this only renames fields, no math.
+function toWarnings(r) {
+  if (Array.isArray(r.warnings)) return r.warnings
+  const c = r.conditions
+  if (!c?.flags) return []
+  const out = []
+  if (c.flags.twilight) out.push({ type: 'twilight' })
+  if (c.flags.moon_up) out.push({ type: 'moon', moon_illumination_pct: c.moon_illumination_pct })
+  if (c.flags.low_altitude) out.push({ type: 'low_altitude' })
+  return out
 }
 
 // Failure details. Real jobs use the top-level error (CLAUDE.md §3 API table); the older

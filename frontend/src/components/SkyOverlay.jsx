@@ -3,15 +3,22 @@
 // (image pixels, origin top-left, x right, y down) is used as-is at any screen size.
 // The frontend does no astronomy math; it only draws what it's given.
 
+import { pickStarLabels } from '../lib/labels.js'
+
 // Dot radius in image units for a star of a given magnitude (brighter = bigger).
 const starRadius = (mag, unit) => Math.max(1.4, 5.2 - 0.65 * mag) * unit
+const onImage = (p, w, h) => Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= 0 && p.y >= 0 && p.x < w && p.y < h
 
 export default function SkyOverlay({ result, showLabels, showGhosts, showHood }) {
   const { width: w, height: h, url } = result.image
   const unit = Math.max(w, h) / 1000 // ~1 unit per 1000 px of the long side
   const stars = result.stars ?? []
   const ghosts = stars.filter((s) => !s.detected)
-  const named = stars.filter((s) => s.detected && s.name)
+  // Only a few well-spaced stars get labels (lib/labels.js); constellation names keep their spot.
+  const constellationLabels = (result.constellations ?? []).map((c) => c.label).filter(Boolean)
+  const named = pickStarLabels(stars, w, h, constellationLabels)
+  // Planets need pixel positions from the backend; skip any without them or off the photo.
+  const planets = (result.planets ?? []).filter((p) => onImage(p, w, h) && p.above_horizon !== false)
   const text = { fontSize: 15 * unit, strokeWidth: 3 * unit }
 
   return (
@@ -70,10 +77,10 @@ export default function SkyOverlay({ result, showLabels, showGhosts, showHood })
           {named.map((s) => (
             <g key={s.id}>
               <circle cx={s.x} cy={s.y} r={9 * unit} fill="none" stroke="#fff" strokeOpacity="0.8" strokeWidth={1.2 * unit} />
-              <text x={s.x + 12 * unit} y={s.y + 5 * unit} className="sky-text" style={text}>{s.name}</text>
+              <text x={s.x + 12 * unit} y={s.y + 5 * unit} className="sky-text" style={text}>{s.text}</text>
             </g>
           ))}
-          {(result.planets ?? []).map((p) => (
+          {planets.map((p) => (
             <g key={p.name}>
               <rect
                 x={p.x - 7 * unit} y={p.y - 7 * unit} width={14 * unit} height={14 * unit}
