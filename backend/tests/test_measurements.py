@@ -165,9 +165,9 @@ def test_job_state_survives_new_store_instance(client, tmp_path):
 def test_steps_are_reported_while_solving(client, store, monkeypatch):
     seen = []
 
-    def spy(path, lat, lon, taken_at, on_step=None):
+    def spy(path, lat, lon, taken_at, on_step=None, hints=None):
         assert path.exists()
-        on_step("Finding stars…")
+        on_step("detecting")
         seen.append(store.get_job(job_id_holder["id"]).get("step"))
         return {"ok": True}
 
@@ -181,4 +181,4 @@ def test_steps_are_reported_while_solving(client, store, monkeypatch):
     monkeypatch.setattr(solver, "solve", spy)
     monkeypatch.setattr(measurements, "run_job", capture)
     upload(client)
-    assert seen == ["Finding stars…"]
+    assert seen == ["detecting"]
