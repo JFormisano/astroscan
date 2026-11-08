@@ -19,16 +19,20 @@ const GREEK = {
 }
 const SUPERSCRIPT = { 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' }
 
-// "52Psi UMa", "Alp1 Cen", "Tau Phe", "29    Psc" → { flamsteed, greek, index, con }; else null.
-const DESIGNATION = /^(\d+)?\s*([A-Z][a-z]{1,2})?(\d)?\s+([A-Z][A-Za-z]{2})$/
+// Catalog designation formats seen in backend/data/stars.json (all checked against the catalog):
+// "52Psi UMa", "Alp1 Cen", "Tau Phe", "29    Psc", unspaced "11Sig1UMa" / "Kap1Scl",
+// spaced index "Pi 1Hyi" / "65Xi 1Cet", and Latin-letter Bayer "p Eri".
+// → { flamsteed, greek, index, con } (greek null for Latin letters); null for anything else.
+const DESIGNATION = /^(\d+)?\s*([A-Z][a-z]{1,2}|[A-Za-z](?=\s))?\s*(\d)?\s*([A-Z][A-Za-z]{2})$/
 
 export function parseDesignation(name) {
   const m = DESIGNATION.exec(name.trim())
   if (!m) return null
-  const [, flamsteed, greek, index, con] = m
-  if (greek && !GREEK[greek]) return null // e.g. "Cor Car" is not a designation
-  if (!flamsteed && !greek) return null
-  return { flamsteed, greek, index, con }
+  const [, flamsteed, letter, index, con] = m
+  const latin = letter?.length === 1
+  if (letter && !latin && !GREEK[letter]) return null // e.g. "Cor Car" is not a designation
+  if (!flamsteed && !letter) return null
+  return { flamsteed, greek: latin ? undefined : letter, index, con }
 }
 
 // Returns { proper, greek } display strings for one star (either may be null).

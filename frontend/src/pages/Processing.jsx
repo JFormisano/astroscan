@@ -90,8 +90,9 @@ export default function Processing() {
     )
   }
 
+  // Unknown steps (the upload route currently sets "Reading photo") count as the first step.
   const known = STEPS.findIndex((s) => s.key === step)
-  const current = known === -1 ? 1 : known
+  const current = known === -1 ? 0 : known
 
   return (
     <main className="flow">

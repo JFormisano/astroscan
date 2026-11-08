@@ -92,7 +92,9 @@ export default function ResultView({ job, result }) {
         <section className="card" aria-label="Sky quality score">
           <h2>Sky score</h2>
           <p className="muted">
-            We identified the stars in your photo, but the 1–9 sky score isn&apos;t available for it yet.
+            {view.scoreFailed
+              ? "We identified the stars in your photo, but there weren't enough catalog stars in view to work out a 1–9 score. A photo with more open sky usually fixes this."
+              : "We identified the stars in your photo, but the 1–9 sky score isn't available for it yet."}
           </p>
         </section>
       )}
