@@ -87,6 +87,15 @@ export default function ResultView({ job, result }) {
       )}
 
       {view.score && <ScoreCard score={view.score} />}
+      {/* Matching ran but scoring hasn't (scoring.py not written yet, or it failed for this photo). */}
+      {view.analyzed && !view.score && (
+        <section className="card" aria-label="Sky quality score">
+          <h2>Sky score</h2>
+          <p className="muted">
+            We identified the stars in your photo, but the 1–9 sky score isn&apos;t available for it yet.
+          </p>
+        </section>
+      )}
 
       {view.explainer && (
         <section className="card">

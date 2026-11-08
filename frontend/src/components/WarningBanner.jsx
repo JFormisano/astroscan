@@ -2,9 +2,9 @@
 function text(w) {
   switch (w.type) {
     case 'twilight':
-      return "The sky wasn't fully dark yet (twilight), so your score reads brighter than your real night sky."
+      return "The sky wasn't fully dark yet (twilight), so it looks brighter here than your real night sky."
     case 'moon':
-      return `The Moon was up${w.moon_illumination_pct != null ? ` (${Math.round(w.moon_illumination_pct)}% lit)` : ''}. Moonlight hides faint stars, so a moonless night would likely score better.`
+      return `The Moon was up${w.moon_illumination_pct != null ? ` (${Math.round(w.moon_illumination_pct)}% lit)` : ''}. Moonlight hides faint stars, so on a moonless night you'd likely see more.`
     case 'low_altitude':
       return 'You were pointing close to the horizon, where haze and city glow are strongest. Aim higher for a fairer reading.'
     default:
