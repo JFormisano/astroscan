@@ -17,7 +17,11 @@ as demo_cache/<name>.json, and set job_id to "demo-<name>" and is_demo to true.
 import json
 import math
 import random
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # so `app` imports from backend/
+from app.explainer import explain_result  # noqa: E402
 
 OUT_DIR = Path(__file__).resolve().parent.parent / "demo_cache"
 W, H = 1600, 1200
@@ -49,14 +53,6 @@ SAMPLES = {
         "taken_at_utc": "2026-11-07T07:30:00Z",
         "flags": {"exposure_s": 3.0, "iso": 1600, "f_number": 1.7, "solve_seconds": 14.2,
                   "solver_used": "local"},
-        "explainer": (
-            "Your sky scored 7 out of 9, which is typical of a bright city center. Your phone "
-            "picked up stars down to about magnitude 4.3, so about {pct_lost}% of the naked-eye "
-            "stars a dark sky would show here are washed out by artificial light. Orion's brightest stars "
-            "still shine through, but the fainter stars around them are gone.\n\n"
-            "What helps: fully shielded fixtures that point light down, warmer bulbs (3000 K or "
-            "below), and lights that switch off or dim when nobody needs them."
-        ),
     },
     "dark-site": {
         "seed": 23,
@@ -67,13 +63,6 @@ SAMPLES = {
         "taken_at_utc": "2026-11-07T08:10:00Z",
         "flags": {"exposure_s": 3.0, "iso": 1600, "f_number": 1.7, "solve_seconds": 11.8,
                   "solver_used": "local"},
-        "explainer": (
-            "Your sky scored 3 out of 9, a rural sky with little light pollution. Your phone "
-            "picked up stars down to about magnitude 6.2, close to what a dark-adapted eye can "
-            "see, so only about {pct_lost}% of naked-eye stars are hidden.\n\n"
-            "Skies like this are worth protecting: shielded, warm, and switched-off-when-not-"
-            "needed lighting keeps them dark."
-        ),
     },
 }
 
@@ -130,9 +119,12 @@ def make_job(name, cfg):
             "solve_seconds": cfg["flags"]["solve_seconds"],
             "solver_used": cfg["flags"]["solver_used"],
         },
-        # Cached explainer text: demo mode never calls the Claude API.
-        "explainer": cfg["explainer"].format(pct_lost=pct_lost),
+        "explainer": None,  # filled in below from the free template
     }
+
+    # Cached explainer text from the same template real results use (app/explainer.py).
+    # Demo mode never calls the Claude API.
+    result["explainer"] = explain_result(result)
 
     # Same top-level shape as GET /api/measurements/{job_id}, plus is_demo.
     return {

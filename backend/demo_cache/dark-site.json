@@ -3147,7 +3147,7 @@
    "solve_seconds": 11.8,
    "solver_used": "local"
   },
-  "explainer": "Your sky scored 3 out of 9, a rural sky with little light pollution. Your phone picked up stars down to about magnitude 6.2, close to what a dark-adapted eye can see, so only about 4% of naked-eye stars are hidden.\n\nSkies like this are worth protecting: shielded, warm, and switched-off-when-not-needed lighting keeps them dark."
+  "explainer": "Your sky scored 3 out of 9, which is typical of a rural sky (1 is darkest, 9 is brightest). Your phone picked up stars down to about magnitude 6.2; the higher that number, the fainter the stars you can see. About 4% of the naked-eye stars a truly dark sky would show here are hidden by artificial light. Tap \"Show the stars light pollution is hiding\" above to see them. You can still pick out Orion.\n\nThis is your sky as your phone saw it: exposure, lens and Night mode all affect how many stars a photo shows.\n\nSkies like this are rare and worth protecting. Outdoor lights that are fully shielded (pointing down), warm-colored (3000 K or below) and switched off when not needed keep them dark."
  },
  "error": null,
  "image_url": null,
