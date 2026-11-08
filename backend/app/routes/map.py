@@ -12,16 +12,21 @@ GET /api/map returns every measurement and light report as map points:
       ]
     }
 
-Light reports are real (app/light_report_store.py). Measurements are FAKE_MAP's sample points
-until Person A's store can list jobs (see _load_measurement_rows).
+Light reports are real (app/light_report_store.py). Measurements are real too (Store.list_map_points
+in app/db.py: solved jobs with a score, and "too few stars" failures as score null). FAKE_MAP's
+sample points (is_demo true, "Sample data" popup) follow the real ones so a fresh deploy's map isn't
+empty; set MAP_SAMPLE_POINTS=0 to drop them. If the store fails, only the sample points are served
+(or nothing, with the switch off).
 
 Locations are always rounded to ~1 km (2 decimal places) before they leave the
 backend, even if the stored value was not (CLAUDE.md section 5, "Location data").
 """
 import logging
+import os
 
 from fastapi import APIRouter, Depends
 
+from app.db import Store, get_store
 from app.light_report_store import ReportStore, get_report_store
 from app.report_templates import category_label
 
@@ -57,14 +62,16 @@ def round_location(value):
     return None if value is None else round(float(value), ROUND_DECIMALS)
 
 
-def _load_measurement_rows():
-    """Measurement rows from Person A's store, or None while that isn't available.
+def _load_measurement_rows(store: Store):
+    """Real measurement rows from Person A's store (rounded location, score, confidence, time, is_demo)."""
+    return store.list_map_points()
 
-    TODO(Person D): once app/db.py can list jobs (ask Person A), return rows with
-    id, lat_rounded, lon_rounded, score, confidence, taken_at_utc, is_demo
-    for status in ('solved', 'failed'). Until then the map shows the fake measurements.
-    """
-    return None
+
+def _sample_points():
+    """The fake sample points, unless MAP_SAMPLE_POINTS=0 switches them off."""
+    if os.environ.get("MAP_SAMPLE_POINTS", "1").strip().lower() in ("0", "false", "no", "off"):
+        return []
+    return FAKE_MAP["measurements"]
 
 
 def _load_report_rows(store):
@@ -101,14 +108,17 @@ def _has_location(row):
 
 
 @router.get("/map")
-def get_map(report_store: ReportStore = Depends(get_report_store)):
+def get_map(
+    report_store: ReportStore = Depends(get_report_store),
+    store: Store = Depends(get_store),
+):
     """All measurements and light reports for the map.
 
     Each half falls back on its own, so one failing source never blanks the whole map:
-    measurements fall back to the fake points, light reports to an empty list.
+    measurements fall back to the sample points, light reports to an empty list.
     """
     try:
-        measurement_rows = _load_measurement_rows()
+        measurement_rows = _load_measurement_rows(store)
     except Exception:
         log.exception("[map] measurement query failed, serving fake measurements")
         measurement_rows = None
@@ -119,9 +129,10 @@ def get_map(report_store: ReportStore = Depends(get_report_store)):
         report_rows = []
 
     if measurement_rows is None:
-        measurements = FAKE_MAP["measurements"]
+        measurements = _sample_points()  # store unavailable: never blank the whole map
     else:
-        measurements = [_measurement_point(r) for r in measurement_rows if _has_location(r)]
+        real = [_measurement_point(r) for r in measurement_rows if _has_location(r)]
+        measurements = real + _sample_points()
     return {
         "measurements": measurements,
         "light_reports": [_report_point(r) for r in report_rows if _has_location(r)],
