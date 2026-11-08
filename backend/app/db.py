@@ -16,6 +16,8 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
 
+INDEX_VERSION = 1
+
 RESTART_ERROR = {
     "code": "server_restarted",
     "message": "The server restarted while your photo was being processed.",
@@ -23,8 +25,28 @@ RESTART_ERROR = {
 }
 
 
+MAP_LIMIT = 2000
+# The only job fields that may leave the backend through /api/map.
+MAP_POINT_FIELDS = ("id", "lat_rounded", "lon_rounded", "score", "confidence", "taken_at_utc", "is_demo")
+FEW_STARS_CODE = "too_few_stars"
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _map_point(row: dict) -> dict:
+    """Project a job (or index entry) to the public map fields. Failed jobs have no score."""
+    failed = row.get("status") == "failed"
+    return {
+        "id": row.get("id"),
+        "lat_rounded": row.get("lat_rounded"),
+        "lon_rounded": row.get("lon_rounded"),
+        "score": None if failed else row.get("score"),
+        "confidence": row.get("confidence") or ("low" if failed else None),
+        "taken_at_utc": row.get("taken_at_utc"),
+        "is_demo": bool(row.get("is_demo")),
+    }
 
 
 class Store(ABC):
@@ -46,6 +68,18 @@ class Store(ABC):
     def mark_stale_pending_failed(self) -> int:
         """Called at startup: pending jobs from a previous process will never finish. Returns count."""
 
+    @abstractmethod
+    def list_map_points(self, limit: int = MAP_LIMIT) -> list[dict]:
+        """Jobs that belong on the public map, newest first, as MAP_POINT_FIELDS dicts only.
+
+        Included: solved jobs that have a score, and failed jobs whose error code is `too_few_stars`
+        (reported with score None and confidence "low"; very few stars is itself evidence about the
+        sky). Not included: pending jobs, solved jobs without a score yet, and other failures
+        (timeouts, no_match, ...), which say nothing about the sky.
+
+        This feeds a public endpoint, so it must never return result, flags, image_url or error.
+        """
+
     def image_path(self, job_id: str) -> Path | None:
         """Local file for the stored image, if this store keeps one (LocalStore only)."""
         return None
@@ -59,17 +93,64 @@ class LocalStore(Store):
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         self.images_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        # Small per-job summary so listing the map never parses the (large) result blobs.
+        self._index_file = self.root / "map_index.json"
+        self._index = self._load_index()
 
     def _job_file(self, job_id: str) -> Path:
         # job ids are our own uuid4 strings; reject anything else so a URL can't escape the dir
         uuid.UUID(job_id)
         return self.jobs_dir / f"{job_id}.json"
 
+    @staticmethod
+    def _index_entry(job: dict) -> dict:
+        error = job.get("error")
+        return {
+            "id": job["id"],
+            "created_at": job.get("created_at"),
+            "status": job.get("status"),
+            "error_code": error.get("code") if isinstance(error, dict) else None,
+            "lat_rounded": job.get("lat_rounded"),
+            "lon_rounded": job.get("lon_rounded"),
+            "score": job.get("score"),
+            "confidence": job.get("confidence"),
+            "taken_at_utc": job.get("taken_at_utc"),
+            "is_demo": bool(job.get("is_demo")),
+        }
+
+    def _load_index(self) -> dict:
+        """Read map_index.json; if it is missing or damaged, rebuild it once from the job files."""
+        try:
+            data = json.loads(self._index_file.read_text(encoding="utf-8"))
+            if data.get("version") == INDEX_VERSION and isinstance(data.get("jobs"), dict):
+                return data["jobs"]
+        except (FileNotFoundError, ValueError, AttributeError):
+            pass
+        index = {}
+        for path in self.jobs_dir.glob("*.json"):
+            try:
+                job = json.loads(path.read_text(encoding="utf-8"))
+                index[job["id"]] = self._index_entry(job)
+            except (ValueError, KeyError):
+                continue  # skip a damaged file rather than break the map
+        self._index = index
+        self._save_index()
+        return index
+
+    def _save_index(self) -> None:
+        tmp = self._index_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"version": INDEX_VERSION, "jobs": self._index}), encoding="utf-8")
+        tmp.replace(self._index_file)
+
     def _write(self, job: dict) -> None:
         path = self._job_file(job["id"])
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(job), encoding="utf-8")
         tmp.replace(path)  # atomic, so a poll never reads half a file
+        entry = self._index_entry(job)
+        if self._index.get(job["id"]) != entry:  # step-only updates leave the index file alone
+            self._index[job["id"]] = entry
+            self._save_index()
 
     def create_job(self, fields: dict, image_bytes: bytes) -> dict:
         job_id = str(uuid.uuid4())
@@ -114,6 +195,18 @@ class LocalStore(Store):
                     self._write(job)
                     count += 1
         return count
+
+    def list_map_points(self, limit: int = MAP_LIMIT) -> list[dict]:
+        with self._lock:
+            entries = list(self._index.values())
+        shown = [
+            e
+            for e in entries
+            if (e["status"] == "solved" and e["score"] is not None)
+            or (e["status"] == "failed" and e["error_code"] == FEW_STARS_CODE)
+        ]
+        shown.sort(key=lambda e: e.get("created_at") or "", reverse=True)
+        return [_map_point(e) for e in shown[:limit]]
 
     def image_path(self, job_id: str) -> Path | None:
         try:
@@ -170,6 +263,24 @@ class SupabaseStore(Store):
             .execute()
         )
         return len(res.data or [])
+
+    def list_map_points(self, limit: int = MAP_LIMIT) -> list[dict]:
+        # Two plain queries (instead of one PostgREST `or` filter), each selecting only what the
+        # map needs, so result/flags/image_url/error never leave the database.
+        cols = "created_at," + ",".join(MAP_POINT_FIELDS)
+        base = lambda: self.client.table(self.TABLE).select(cols)  # noqa: E731
+        solved = (
+            base().eq("status", "solved").not_.is_("score", "null")
+            .order("created_at", desc=True).limit(limit).execute()
+        )
+        few_stars = (
+            base().eq("status", "failed").eq("error->>code", FEW_STARS_CODE)
+            .order("created_at", desc=True).limit(limit).execute()
+        )
+        rows = [{**r, "status": "solved"} for r in (solved.data or [])]
+        rows += [{**r, "status": "failed"} for r in (few_stars.data or [])]
+        rows.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+        return [_map_point(r) for r in rows[:limit]]
 
 
 _store: Store | None = None
