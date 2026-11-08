@@ -171,6 +171,31 @@ def scale_range_deg(image_w: int, image_h: int, focal_35mm: float | None) -> tup
     return (low, high) if low < high else FALLBACK_SCALE_DEG
 
 
+# Photos without camera data (chat apps and screenshots strip EXIF) have no focal length to go on.
+# One huge 10-100 degree search is about 10x slower than a right-sized one (a real phone photo
+# solved in 7-10 s at 30-80 degrees but timed out at 10-100). So try the likely windows in turn,
+# most likely first: phone main camera (about 45-70 degrees across the x axis), then zoomed or
+# cropped views, then ultra-wide. Each window gets a share of the time limit.
+NO_EXIF_STAGES = [(30.0, 80.0), (10.0, 30.0), (80.0, 120.0)]
+FIRST_STAGE_SHARE = 0.55  # of the time limit; the other stages split the rest
+
+
+def scale_stages_deg(image_w: int, image_h: int, focal_35mm: float | None) -> list[tuple[float, float]]:
+    """Scale windows (degrees across the x axis) to try, in order. With a usable EXIF focal length
+    there is one window around it; otherwise the common phone windows above."""
+    if focal_35mm and focal_35mm > 0:
+        return [scale_range_deg(image_w, image_h, focal_35mm)]
+    return list(NO_EXIF_STAGES)
+
+
+def stage_budgets(count: int, limit_s: float) -> list[float]:
+    """Split the time limit across `count` windows (the first, most likely, gets the most)."""
+    if count <= 1:
+        return [limit_s] * count
+    rest = limit_s * (1 - FIRST_STAGE_SHARE) / (count - 1)
+    return [limit_s * FIRST_STAGE_SHARE] + [rest] * (count - 1)
+
+
 def fits_xy_to_image(x_fits: float, y_fits: float) -> tuple[float, float]:
     """astrometry.net pixel numbers -> image pixels.
 
@@ -430,6 +455,24 @@ def local_available() -> bool:
     )
 
 
+def status() -> dict:
+    """Which solver a photo would use right now. Served by /api/health so a deploy can be checked
+    ("is this server really using solve-field?") without uploading anything. No secrets in it."""
+    mode = (os.environ.get("SOLVER_MODE") or "auto").strip().lower()
+    local = local_available()
+    api_key = bool(os.environ.get("ASTROMETRY_API_KEY"))
+    if mode == "stub":
+        using = "stub"
+    elif mode == "api":
+        using = "api" if api_key else "none"
+    elif mode == "local":
+        using = "local" if local else "none"
+    else:  # auto: local first, the public API only if local is missing
+        using = "local" if local else ("api" if api_key else "none")
+    index_files = len(list(index_dir().glob("index-*.fits"))) if index_dir().is_dir() else 0
+    return {"mode": mode, "using": using, "local_available": local, "index_files": index_files, "api_key_set": api_key}
+
+
 def _run(cmd: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
     """Run a command, return (exit code, combined output). On timeout kill it and its children
     (solve-field starts helper programs) and raise subprocess.TimeoutExpired."""
@@ -454,23 +497,38 @@ def _run(cmd: list[str], cwd: Path, timeout: float) -> tuple[int, str]:
     return proc.returncode, out or ""
 
 
+def _set_axy_scale(axy_path: Path, low_deg: float, high_deg: float, image_w: int, cpu_limit_s: float) -> None:
+    """Point an already-extracted .axy at a different field-size window and time limit, so another
+    window can be tried without extracting the stars again. astrometry.net stores the scale in
+    arcseconds per pixel (ANAPPL1 / ANAPPU1) and the CPU limit in ANCLIM."""
+    from astropy.io import fits
+
+    with fits.open(axy_path, mode="update") as hdul:
+        header = hdul[0].header
+        header["ANAPPL1"] = low_deg * 3600.0 / image_w
+        header["ANAPPU1"] = high_deg * 3600.0 / image_w
+        header["ANCLIM"] = max(1, int(cpu_limit_s))
+
+
 def _solve_local(
     image_path: Path,
     image_w: int,
     image_h: int,
-    scale: tuple[float, float],
+    scales: list[tuple[float, float]],
     step: Callable[[str], None],
 ) -> SolveOutput:
     """Two stages, the same ones solve-field runs internally, so we can look in between:
     1. `solve-field --just-augment`  extracts stars (about a second or few) and writes an .axy file.
        Too few stars -> fail right here instead of searching until a timeout.
     2. `astrometry-engine`           matches star patterns against the index files and writes the WCS.
+       Run once per scale window in `scales` (see scale_stages_deg) until one solves.
     `solve-field` exits 0 even when it didn't solve, so success = the .solved file AND enough
     matched stars AND a high match log-odds.
     """
     from astropy.io import fits
 
     limit = local_timeout_s()
+    scale = scales[0]
     with _local_lock, tempfile.TemporaryDirectory(prefix="solve-") as tmp:
         work = Path(tmp)
         axy_path = work / "photo.axy"
@@ -501,19 +559,29 @@ def _solve_local(
 
         step(STEP_SOLVING)
         engine = ["astrometry-engine", *_config_args("-c"), str(axy_path)]  # the engine spells it -c
-        try:
-            rc, out = _run(engine, work, limit)  # wall-clock limit; --cpulimit inside the .axy covers CPU time
-        except FileNotFoundError:
-            raise LocalSolverUnavailable("astrometry-engine not installed") from None
-        except subprocess.TimeoutExpired:
-            raise solve_timeout(detected) from None
-        solved = (work / "photo.solved").exists()
-        if not solved:
+        solved = timed_out = False
+        for (low, high), budget in zip(scales, stage_budgets(len(scales), limit)):
+            _set_axy_scale(axy_path, low, high, image_w, budget)
+            try:
+                # Wall-clock kill at `budget`; ANCLIM inside the .axy is the matching CPU limit.
+                rc, out = _run(engine, work, budget)
+            except FileNotFoundError:
+                raise LocalSolverUnavailable("astrometry-engine not installed") from None
+            except subprocess.TimeoutExpired:
+                log.info("no solution in %.0f-%.0f deg window within %.0f s", low, high, budget)
+                timed_out = True
+                continue
+            if (work / "photo.solved").exists():
+                solved = True
+                log.info("solved in the %.0f-%.0f deg window", low, high)
+                break
             if "CPU time limit reached" in out:
-                raise solve_timeout(detected)
-            if rc != 0:
+                timed_out = True
+            elif rc != 0:
                 raise LocalSolverUnavailable(f"astrometry-engine failed (exit {rc}): {out[-500:]}")
-            raise no_match(detected)
+            # else: this window was searched fully with no match; try the next one
+        if not solved:
+            raise solve_timeout(detected) if timed_out else no_match(detected)
 
         with fits.open(work / "photo.corr", memmap=False) as corr:
             matched = len(corr[1].data)
@@ -572,14 +640,16 @@ def solve(
 
     with Image.open(image_path) as img:
         image_w, image_h = img.size
-    scale = scale_range_deg(image_w, image_h, (hints or {}).get("focal_35mm"))
+    focal_35mm = (hints or {}).get("focal_35mm")
+    scale = scale_range_deg(image_w, image_h, focal_35mm)  # one window (the public API)
+    stages = scale_stages_deg(image_w, image_h, focal_35mm)  # windows to try in turn (local)
     t0 = time.monotonic()
 
     if mode == "api":
         out = _solve_nova(image_path, image_w, image_h, scale, step)
     elif mode == "local":
         try:
-            out = _solve_local(image_path, image_w, image_h, scale, step)
+            out = _solve_local(image_path, image_w, image_h, stages, step)
         except LocalSolverUnavailable:
             log.exception("local solver unavailable (SOLVER_MODE=local)")
             raise solver_unavailable() from None
@@ -587,7 +657,7 @@ def solve(
         out = None
         if local_available():
             try:
-                out = _solve_local(image_path, image_w, image_h, scale, step)
+                out = _solve_local(image_path, image_w, image_h, stages, step)
             except LocalSolverUnavailable:
                 log.exception("local solver failed; falling back to the public API")
         else:

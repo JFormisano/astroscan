@@ -6,7 +6,7 @@ Free, mobile-first website: upload a night-sky photo, get stars and constellatio
 ```
 docker compose up --build        # then open http://localhost:8080
 ```
-No keys needed: the star-matching runs locally in the container. Test it with `python backend/scripts/smoke.py http://localhost:8080 <photo.jpg>`, run every test with `docker compose --profile test run --rm tests`. Deploying (Render + Vercel + Supabase): [docs/deploy.md](docs/deploy.md).
+No keys needed: the star-matching runs locally in the container. Test it with `python backend/scripts/smoke.py http://localhost:8080 <photo.jpg>`, run every test with `docker compose --profile test run --rm --build tests`. Deploying: one server with HTTPS and the real solver, or Render + Vercel + Supabase, in [docs/deploy.md](docs/deploy.md).
 
 ## Run the pieces separately (development)
 
@@ -38,6 +38,16 @@ docker run --rm -p 8000:8000 --env-file backend/.env astroscan-backend
 docker run --rm -v "$PWD/test_photos:/photos:ro" -v "$PWD/backend/tests:/srv/tests:ro" -e TEST_PHOTOS_DIR=/photos astroscan-backend python -m pytest tests/test_solver_integration.py -s
 ```
 What the solver returns and how pixels map to the sky: [docs/solver-output.md](docs/solver-output.md).
+
+## Run the real solver without Docker (WSL / Ubuntu)
+`solve-field` has no Windows build, so on Windows use WSL. One-time setup (installs astrometry.net, the star-index files and a Python environment under `~/.astroscan`; needs `sudo` for the apt step, or run `wsl -u root`):
+```
+wsl -d Ubuntu
+cd /mnt/c/UBHACK2026/astroscan/backend      # your repo path
+bash scripts/setup_wsl.sh
+source ~/.astroscan/env.sh && pytest -q      # the real-solver tests now run instead of skipping
+```
+Tested with Ubuntu 24.04's astrometry.net 0.93 (the Docker image has 0.97). Real-photo tests also need the photos in the git-ignored `test_photos/`.
 
 ## Layout
 - `frontend/` React + Vite. Pages in `src/pages/`, components in `src/components/`, all backend calls in `src/api.js`.

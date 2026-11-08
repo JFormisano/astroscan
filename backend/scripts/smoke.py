@@ -3,6 +3,7 @@
     python scripts/smoke.py http://localhost:8080 ../test_photos/dunes_2048.jpg
     python scripts/smoke.py https://your-backend.onrender.com            # health check only
     python scripts/smoke.py http://localhost:8080 --blank                # expects a clean failure
+    python scripts/smoke.py https://your-site.com --require-local        # fail if the real solver isn't in use
 
 Checks, in order: /api/health answers (and how fast: the cold-start check), then, if a photo is
 given, uploads it, follows the job's `step` values until it finishes, and prints the outcome.
@@ -31,13 +32,17 @@ def main() -> int:
     ap.add_argument("base_url", help="origin only, e.g. http://localhost:8080 or https://api.example.com")
     ap.add_argument("photo", nargs="?", help="JPEG/PNG to upload (omit for a health check only)")
     ap.add_argument("--blank", action="store_true", help="upload a blank sky and expect a clean 'failed' result")
+    ap.add_argument("--require-local", action="store_true",
+                    help="fail unless the server reports it will use the real local solve-field")
+    ap.add_argument("--insecure", action="store_true",
+                    help="skip TLS certificate checks (only for a local test with a self-signed certificate)")
     ap.add_argument("--timeout", type=float, default=300, help="seconds to wait for the job (default 300)")
     ap.add_argument("--lat", default="43.0008")
     ap.add_argument("--lon", default="-78.7897")
     args = ap.parse_args()
 
     base = args.base_url.rstrip("/")
-    client = httpx.Client(timeout=60, follow_redirects=True)
+    client = httpx.Client(timeout=60, follow_redirects=True, verify=not args.insecure)
 
     t0 = time.monotonic()
     try:
@@ -46,7 +51,12 @@ def main() -> int:
     except httpx.HTTPError as e:
         print(f"FAIL  /api/health did not answer: {e}")
         return 1
-    print(f"ok    /api/health in {time.monotonic() - t0:.1f}s  {health.json()}")
+    info = health.json().get("solver", {})
+    print(f"ok    /api/health in {time.monotonic() - t0:.1f}s  status={health.json().get('status')} solver={info}")
+    if args.require_local and info.get("using") != "local":
+        print(f"FAIL  --require-local: this server would use {info.get('using')!r}, not the real solve-field "
+              f"(local_available={info.get('local_available')}, index_files={info.get('index_files')})")
+        return 1
 
     if not args.photo and not args.blank:
         return 0

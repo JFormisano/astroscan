@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app import solver
 from app.db import get_store
 from app.errors import ApiError
 from app.routes import demo, light_reports, map as map_routes, measurements
@@ -49,5 +50,6 @@ app.include_router(demo.router, prefix="/api")
 
 @app.get("/api/health")
 def health():
-    """Keep-alive ping and quick deploy check."""
-    return {"status": "ok"}
+    """Keep-alive ping and quick deploy check. `solver.using` says which solver photos will get:
+    "local" (real solve-field), "api" (public astrometry.net), "stub" (fake) or "none"."""
+    return {"status": "ok", "solver": solver.status()}
