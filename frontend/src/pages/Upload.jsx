@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { createMeasurement } from '../api.js'
 import { readExifTime } from '../lib/exif.js'
+import { requestLocation } from '../lib/locate.js'
 import '../styles/flow.css'
 
 const MAX_BYTES = 15 * 1024 * 1024
@@ -45,28 +46,44 @@ export default function Upload() {
   const [timeSource, setTimeSource] = useState(null) // 'exif' | 'exif-no-zone' | 'none'
   const [lat, setLat] = useState('')
   const [lon, setLon] = useState('')
-  const [geo, setGeo] = useState({ state: 'idle', message: null })
+  const [geo, setGeo] = useState({ state: 'idle', source: null, message: null })
   const [sending, setSending] = useState(false)
   const [submitError, setSubmitError] = useState(null)
+  const stopLocate = useRef(() => {})
+  // Set when the user types a coordinate, so a late fix doesn't overwrite it.
+  const typedLocation = useRef(false)
 
   useEffect(() => () => previewUrl && URL.revokeObjectURL(previewUrl), [previewUrl])
+  useEffect(() => () => stopLocate.current(), [])
 
   function locate() {
-    if (!('geolocation' in navigator)) {
-      setGeo({ state: 'error', message: geoMessage(2) })
-      return
-    }
-    setGeo({ state: 'locating', message: null })
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        // Round in the browser (~1 km) so the precise location never leaves the phone.
-        setLat(pos.coords.latitude.toFixed(2))
-        setLon(pos.coords.longitude.toFixed(2))
-        setGeo({ state: 'ok', message: null })
+    stopLocate.current()
+    typedLocation.current = false
+    setGeo({ state: 'locating', source: null, message: null })
+    stopLocate.current = requestLocation({
+      onFix: (fix) => {
+        if (typedLocation.current) return
+        // Already rounded to ~1 km inside requestLocation.
+        setLat(fix.lat.toFixed(2))
+        setLon(fix.lon.toFixed(2))
+        setGeo({ state: 'ok', source: fix.source, place: fix.place || null, message: null })
       },
-      (err) => setGeo({ state: 'error', message: geoMessage(err.code) }),
-      { enableHighAccuracy: false, timeout: 15000, maximumAge: 10 * 60 * 1000 },
-    )
+      onFail: (code) => setGeo({ state: 'error', source: null, message: geoMessage(code) }),
+    })
+  }
+
+  function editLat(value) {
+    typedLocation.current = true
+    stopLocate.current()
+    setLat(value)
+    setGeo({ state: 'idle', source: 'typed', message: null })
+  }
+
+  function editLon(value) {
+    typedLocation.current = true
+    stopLocate.current()
+    setLon(value)
+    setGeo({ state: 'idle', source: 'typed', message: null })
   }
 
   async function onPick(e) {
@@ -102,15 +119,18 @@ export default function Upload() {
   const latNum = Number.parseFloat(lat)
   const lonNum = Number.parseFloat(lon)
   const takenAt = timeText ? new Date(timeText) : null // parsed as device-local time
+  const locationMissing = !(latNum >= -90 && latNum <= 90) || !(lonNum >= -180 && lonNum <= 180)
+  const timeMissing = !takenAt || Number.isNaN(takenAt.getTime())
   const problems = []
-  if (!(latNum >= -90 && latNum <= 90) || !(lonNum >= -180 && lonNum <= 180)) {
+  // Hide the empty-location warning while a lookup is still running.
+  if (locationMissing && geo.state !== 'locating') {
     problems.push('Add the location (latitude −90 to 90, longitude −180 to 180).')
   }
-  if (!takenAt || Number.isNaN(takenAt.getTime())) problems.push('Add when the photo was taken.')
+  if (timeMissing) problems.push('Add when the photo was taken.')
 
   async function onSubmit(e) {
     e.preventDefault()
-    if (problems.length || sending) return
+    if (locationMissing || timeMissing || sending || geo.state === 'locating') return
     if (takenAt.getTime() > Date.now() + 5 * 60 * 1000) {
       setSubmitError("That time is in the future. Check when you took the photo.")
       return
@@ -189,16 +209,25 @@ export default function Upload() {
         <fieldset>
           <legend>Where did you take it?</legend>
           {geo.state === 'locating' && <p className="hint">Finding your location…</p>}
-          {geo.state === 'ok' && <p className="hint">Using your current location. Change it if you took the photo somewhere else.</p>}
+          {geo.state === 'ok' && geo.source === 'device' && (
+            <p className="hint">Using your current location. Change it if you took the photo somewhere else.</p>
+          )}
+          {geo.state === 'ok' && geo.source === 'network' && (
+            <p className="hint">
+              {geo.place
+                ? `Approximate location from your internet connection: ${geo.place}. Change it if you took the photo somewhere else.`
+                : 'Approximate location from your internet connection, about as close as your city. Change it if you took the photo somewhere else.'}
+            </p>
+          )}
           {geo.message && <p className="alert alert-warn">{geo.message}</p>}
           <div className="row">
             <label>
               Latitude
-              <input inputMode="decimal" value={lat} onChange={(e) => setLat(e.target.value)} placeholder="43.00" />
+              <input inputMode="decimal" value={lat} onChange={(e) => editLat(e.target.value)} autoComplete="off" />
             </label>
             <label>
               Longitude
-              <input inputMode="decimal" value={lon} onChange={(e) => setLon(e.target.value)} placeholder="-78.79" />
+              <input inputMode="decimal" value={lon} onChange={(e) => editLon(e.target.value)} autoComplete="off" />
             </label>
           </div>
           {geo.state !== 'locating' && (
@@ -206,7 +235,11 @@ export default function Upload() {
               Use my current location
             </button>
           )}
-          <p className="hint">Rounded to about 1 km. That&apos;s the only location we keep.</p>
+          <p className="hint">
+            {geo.source === 'network'
+              ? 'We only keep this rounded value.'
+              : "Rounded to about 1 km. That's the only location we keep."}
+          </p>
         </fieldset>
 
         {problems.length > 0 && (
@@ -216,7 +249,7 @@ export default function Upload() {
         )}
         {submitError && <p className="alert alert-error" role="alert">{submitError}</p>}
 
-        <button type="submit" className="btn btn-primary btn-big" disabled={problems.length > 0 || sending}>
+        <button type="submit" className="btn btn-primary btn-big" disabled={locationMissing || timeMissing || sending || geo.state === 'locating'}>
           {sending ? 'Uploading…' : 'Analyze my sky'}
         </button>
         <button type="button" className="btn btn-secondary" onClick={reset} disabled={sending}>

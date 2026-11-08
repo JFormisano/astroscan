@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { createLightReport } from '../api.js'
 import LocationPicker from '../components/LocationPicker.jsx'
+import { requestLocation } from '../lib/locate.js'
 import '../styles/flow.css'
 import '../styles/report.css'
 
@@ -110,24 +111,22 @@ export default function LightReport() {
   const [error, setError] = useState(null)
   const [report, setReport] = useState(null)
   const fileRef = useRef(null)
+  const stopLocate = useRef(() => {})
 
   // Free the photo preview's memory when it changes or the page closes.
   useEffect(() => () => preview && URL.revokeObjectURL(preview), [preview])
+  useEffect(() => () => stopLocate.current(), [])
 
   function locate() {
-    if (!('geolocation' in navigator)) {
-      setGeo({ state: 'error', message: geoMessage(2) })
-      return
-    }
+    stopLocate.current()
     setGeo({ state: 'locating', message: null })
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setSpot({ lat: pos.coords.latitude, lon: pos.coords.longitude })
+    stopLocate.current = requestLocation({
+      onFix: (fix) => {
+        setSpot({ lat: fix.lat, lon: fix.lon })
         setGeo({ state: 'ok', message: null })
       },
-      (err) => setGeo({ state: 'error', message: geoMessage(err.code) }),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60 * 1000 },
-    )
+      onFail: (code) => setGeo({ state: 'error', message: geoMessage(code) }),
+    })
   }
 
   function onPhoto(e) {
