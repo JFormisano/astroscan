@@ -107,3 +107,16 @@ def test_map_stays_fast_with_hundreds_of_big_jobs(tmp_path, capsys):
     with capsys.disabled():
         print(f"\n/api/map with 200 x ~{len(json.dumps(blob))//1024} KB jobs: {per_request*1000:.1f} ms")
     assert per_request < 0.25
+
+
+def test_real_pipeline_score_puts_the_photo_on_the_map(client, monkeypatch):
+    """No mocked scoring: solver output -> matching -> B's score_sky -> columns -> /api/map."""
+    from tests.test_pipeline import CENTRE, solver_block
+
+    monkeypatch.setattr(solver, "solve", lambda *a, **k: solver_block([{"x": CENTRE[0], "y": CENTRE[1], "flux": 9.0}]))
+    job_id = upload(client).json()["job_id"]
+    job = client.get(f"/api/measurements/{job_id}").json()
+    assert 1 <= job["result"]["score"]["value"] <= 9
+    (point,) = client.get("/api/map").json()["measurements"]
+    assert point["id"] == job_id and point["score"] == job["result"]["score"]["value"]
+    assert point["confidence"] == job["result"]["score"]["confidence"]

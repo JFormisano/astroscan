@@ -94,7 +94,7 @@ def run_job(store: Store, job_id: str, image_bytes: bytes) -> None:
             on_step=lambda s: store.update_job(job_id, {"step": s}),
             hints=job.get("flags") or {},
         )
-        # Add star names, constellation lines, planets and warnings (Person B's matching/conditions).
+        # Add star names, constellation lines, planets, warnings and the score (Person B's matching/conditions/scoring).
         # Never fails the job: a photo that solved stays solved even if these extras break.
         result = pipeline.analyze(
             result,
@@ -102,6 +102,7 @@ def run_job(store: Store, job_id: str, image_bytes: bytes) -> None:
             lon=job["lon_rounded"],
             taken_at_utc=job["taken_at_utc"],
             image_url=job.get("image_url"),
+            exif=job.get("flags") or {},
             on_step=lambda s: store.update_job(job_id, {"step": s}),
         )
         flags = {**(job.get("flags") or {}), "solve_seconds": round(time.monotonic() - t0, 2)}
