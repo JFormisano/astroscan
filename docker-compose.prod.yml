@@ -1,0 +1,35 @@
+# EVERYTHING ON ONE SERVER, with HTTPS and the real solver:
+#
+#   DOMAIN=astroscan.example.com docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# (or put DOMAIN=... in a file named .env next to this one). Layered on top of docker-compose.yml:
+# nothing but Caddy is exposed to the internet, and the backend only accepts browsers from DOMAIN.
+# Full guide: docs/deploy.md.
+services:
+  backend:
+    ports: !reset []
+    environment:
+      FRONTEND_ORIGINS: https://${DOMAIN:?set DOMAIN to the site's domain name}
+
+  frontend:
+    ports: !reset []
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN to the site's domain name}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+
+volumes:
+  caddy_data:
+  caddy_config:

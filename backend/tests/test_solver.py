@@ -344,8 +344,11 @@ class FakeSolveField:
     """Stands in for `_run`: writes the files solve-field / astrometry-engine would write."""
 
     def __init__(self, *, stars=STARS, solved=True, matched=21, log_odds=80.0, augment_rc=0, engine_rc=0,
-                 engine_output="", augment_raises=None, engine_raises=None):
+                 engine_output="", augment_raises=None, engine_raises=None, solve_on_call=1, timeout_calls=()):
         self.stars, self.solved, self.matched, self.log_odds = stars, solved, matched, log_odds
+        self.solve_on_call, self.timeout_calls = solve_on_call, set(timeout_calls)
+        self.engine_calls = 0
+        self.engine_windows: list[tuple[float, float, float]] = []  # (low deg, high deg, cpu limit) per engine run
         self.augment_rc, self.engine_rc, self.engine_output = augment_rc, engine_rc, engine_output
         self.augment_raises, self.engine_raises = augment_raises, engine_raises
         self.commands: list[list[str]] = []
@@ -359,9 +362,17 @@ class FakeSolveField:
                 with open(cmd[cmd.index("--axy") + 1], "wb") as f:  # an absolute path inside the temp dir
                     f.write(axy_bytes(self.stars))
             return self.augment_rc, ""
+        self.engine_calls += 1
+        with fits.open(cmd[-1]) as axy:  # what the engine would read: scale window and CPU limit
+            h = axy[0].header
+            self.engine_windows.append((h["ANAPPL1"] * W / 3600, h["ANAPPU1"] * W / 3600, h["ANCLIM"]))
         if self.engine_raises:
             raise self.engine_raises
-        if self.solved:
+        if self.engine_calls in self.timeout_calls:
+            import subprocess
+
+            raise subprocess.TimeoutExpired("astrometry-engine", timeout)
+        if self.solved and self.engine_calls >= self.solve_on_call:
             (cwd / "photo.solved").write_bytes(b"\x01")
             (cwd / "photo.wcs").write_bytes(wcs_bytes())
             (cwd / "photo.corr").write_bytes(corr_bytes(self.matched))
@@ -369,9 +380,10 @@ class FakeSolveField:
         return self.engine_rc, self.engine_output
 
 
-def run_local(fake, photo_path, monkeypatch, steps=None):
+def run_local(fake, photo_path, monkeypatch, steps=None, scales=None):
     monkeypatch.setattr(solver, "_run", fake)
-    return solver._solve_local(photo_path, W, H, (20.0, 80.0), (steps.append if steps is not None else (lambda s: None)))
+    scales = scales or [(20.0, 80.0)]
+    return solver._solve_local(photo_path, W, H, scales, (steps.append if steps is not None else (lambda s: None)))
 
 
 def test_local_happy_path_reads_wcs_sources_and_match_quality(photo_path, monkeypatch):
@@ -536,3 +548,87 @@ def test_auto_without_local_or_key_says_unavailable(photo_path, monkeypatch):
     with pytest.raises(solver.SolveFailed) as e:
         solve_it(photo_path)
     assert e.value.code == "solver_unavailable"
+
+
+# --- trying several field-size windows when there is no camera data -----------------------
+
+
+def test_with_exif_there_is_one_window_around_the_focal_length():
+    assert solver.scale_stages_deg(1600, 1200, 26) == [solver.scale_range_deg(1600, 1200, 26)]
+
+
+@pytest.mark.parametrize("missing", [None, 0])
+def test_without_exif_phone_windows_are_tried_most_likely_first(missing):
+    stages = solver.scale_stages_deg(1440, 1920, missing)
+    assert stages[0] == (30.0, 80.0)  # phone main camera, portrait or landscape
+    assert set(stages) == {(30.0, 80.0), (10.0, 30.0), (80.0, 120.0)}
+
+
+def test_the_windows_cover_real_phone_fields_between_telephoto_and_ultra_wide():
+    covered = lambda deg: any(lo <= deg <= hi for lo, hi in solver.NO_EXIF_STAGES)
+    for width_deg in (18, 26, 45, 50, 55, 69, 72, 85, 108):  # tele, main (portrait/landscape), ultra-wide
+        assert covered(width_deg), width_deg
+
+
+def test_stage_budgets_add_up_to_the_limit_and_favour_the_first():
+    one = solver.stage_budgets(1, 90)
+    three = solver.stage_budgets(3, 90)
+    assert one == [90]
+    assert sum(three) == pytest.approx(90) and three[0] > three[1] == three[2]
+
+
+def test_a_later_window_can_solve_without_extracting_stars_again(photo_path, monkeypatch):
+    stages = [(30.0, 80.0), (10.0, 30.0), (80.0, 120.0)]
+    fake = FakeSolveField(solve_on_call=2)  # the first window finds nothing, the second solves
+    out = run_local(fake, photo_path, monkeypatch, scales=stages)
+    assert out.stars_matched == 21
+    assert fake.engine_calls == 2
+    assert [c[0] for c in fake.commands].count("solve-field") == 1  # stars extracted once
+    (lo1, hi1, _), (lo2, hi2, _) = fake.engine_windows
+    assert (lo1, hi1) == pytest.approx((30, 80)) and (lo2, hi2) == pytest.approx((10, 30))
+
+
+def test_each_window_gets_its_own_time_budget(photo_path, monkeypatch):
+    monkeypatch.setenv("LOCAL_SOLVE_TIMEOUT_S", "100")
+    stages = [(30.0, 80.0), (10.0, 30.0), (80.0, 120.0)]
+    fake = FakeSolveField(solved=False)
+    with pytest.raises(solver.SolveFailed):
+        run_local(fake, photo_path, monkeypatch, scales=stages)
+    limits = [c for _, _, c in fake.engine_windows]
+    assert limits == [55, 22, 22]  # 55% then the rest split; ANCLIM is a whole number of seconds
+    assert sum(limits) <= 100
+
+
+def test_a_window_that_times_out_does_not_stop_the_next_one(photo_path, monkeypatch):
+    fake = FakeSolveField(solve_on_call=2, timeout_calls=(1,))
+    out = run_local(fake, photo_path, monkeypatch, scales=[(30.0, 80.0), (10.0, 30.0)])
+    assert out.solver_used == "local" and fake.engine_calls == 2
+
+
+def test_all_windows_searched_with_no_match_is_no_match(photo_path, monkeypatch):
+    fake = FakeSolveField(solved=False, engine_output="Field 1 did not solve")
+    with pytest.raises(solver.SolveFailed) as e:
+        run_local(fake, photo_path, monkeypatch, scales=list(solver.NO_EXIF_STAGES))
+    assert e.value.code == "no_match" and fake.engine_calls == 3
+
+
+def test_any_window_running_out_of_time_makes_the_failure_a_timeout(photo_path, monkeypatch):
+    fake = FakeSolveField(solved=False, engine_output="Field 1 did not solve", timeout_calls=(2,))
+    with pytest.raises(solver.SolveFailed) as e:
+        run_local(fake, photo_path, monkeypatch, scales=list(solver.NO_EXIF_STAGES))
+    assert e.value.code == "solve_timeout" and fake.engine_calls == 3
+
+
+def test_solve_passes_the_windows_to_the_local_solver(photo_path, monkeypatch):
+    seen = {}
+
+    def fake_local(path, w, h, scales, step):
+        seen["scales"] = scales
+        return fake_output("local")
+
+    monkeypatch.setenv("SOLVER_MODE", "local")
+    monkeypatch.setattr(solver, "_solve_local", fake_local)
+    solver.solve(photo_path, 43.0, -78.79, None)  # no hints: no camera data
+    assert seen["scales"] == solver.NO_EXIF_STAGES
+    solver.solve(photo_path, 43.0, -78.79, None, hints={"focal_35mm": 26})
+    assert seen["scales"] == [solver.scale_range_deg(W, H, 26)]

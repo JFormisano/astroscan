@@ -8,9 +8,9 @@ Team: Person A (photo in, solve out) · Person B (astronomy math) · Person C (m
 Pitch: the whole team works on it together after the hour-18 feature freeze.
 
 **Status (Nov 7, from git history and the last test runs):**
-- Merged to `main`: #1 upload backend (A), #1 upload/processing frontend + #5/#7/#12/#13 screens built on fake data (C), #8 map route and page (D).
-- **#2 plate solving (A): done on branch `jacob-#2_Plate_Solving`, not yet merged.** Local `solve-field` in Docker is primary, the public nova API is the fallback, both tested on real photos. Output shape and pixel convention: `docs/solver-output.md`.
-- Still open: `docs/result-schema.json` (not agreed yet), B's matching/scoring/conditions (modules are empty stubs), #9–#11 (D; `ai.py`, `demo.py`, `light_reports.py` are stubs and `demo_cache/` is empty), deploy, Night-mode photo tests.
+- Merged to `main`: #1 upload (A backend, C frontend), **#2 plate solving (A, PR #4)**, #5/#7/#12/#13 screens (C), #8 map (D), #9 light reports (D), #11 demo mode (D), and B's catalog, `match_stars` and `evaluate_conditions`.
+- **Real uploads now go solve -> match -> results page.** `app/pipeline.py` (A) runs B's matching and conditions after the solver and returns stars with ghost flags, constellation lines, projected planets and warnings in the demo-cache shape. A real phone photo shows names, constellation lines, the hidden-stars toggle and the under-the-hood view. Open PRs from A: staged field-size windows, one-server deploy and `/api/health` solver status; the pipeline wiring is on top of those.
+- Still open: **`scoring.py` (B) is not written, so real photos have no score, confidence or limiting magnitude** (the page hides the score card without one); the AI explainer (#10, `ai.py` has only the light-report drafter); `docs/result-schema.json` (not agreed; the demo cache and `docs/solver-output.md` describe the shape in use); Night-mode phone photo tests; deploy to a real server (configs written and tested locally only).
 
 ---
 
@@ -122,7 +122,7 @@ Frontend renders overlays on the photo (SVG or canvas)
   - Run **one worker** and one solve at a time; parallel solves on a small machine just make every solve slower. The solver enforces this with a lock around the local solve only; waiting jobs stay `pending`.
   - **Timing caveat:** the ~40 s end-to-end solve quoted in §4 was measured in Docker Desktop on a many-core dev laptop. `astrometry-engine` is single-threaded, so a 0.5-CPU host will be roughly 2x slower or worse and could hit the 90 s default limit. `render.yaml` therefore asks for 1 CPU / 2 GB and `LOCAL_SOLVE_TIMEOUT_S=120`. Container memory peaked at about 290 MiB (including file cache). Re-measure on the deployed instance before the pitch (`backend/scripts/smoke.py`). Run/deploy guide: `docs/deploy.md`.
   - **The backend must not sleep during judging.** Use an always-on instance; keep `/api/health` for a quick check.
-  - **Run and deploy:** `docker compose up --build` runs the whole app on one PC (http://localhost:8080); `render.yaml` (backend blueprint), `frontend/vercel.json` and `docs/deploy.md` cover Render + Vercel + Supabase. `backend/scripts/smoke.py <url> <photo>` is the post-deploy check (health time = cold start, then a full solve).
+  - **Run and deploy:** `docker compose up --build` runs the whole app on one PC (http://localhost:8080); `docker-compose.prod.yml` + `deploy/Caddyfile` put the same stack on ONE server with automatic HTTPS and the real solver (tested end to end with `DOMAIN=localhost`); `render.yaml`, `frontend/vercel.json` and `docs/deploy.md` cover the Render + Vercel + Supabase alternative. `backend/scripts/smoke.py <url> <photo> --require-local` is the post-deploy check (health time = cold start, a full solve, and it fails unless the server really uses `solve-field`).
 
 ### Proposed layout
 ```
@@ -135,6 +135,7 @@ Frontend renders overlays on the photo (SVG or canvas)
   app/main.py       app setup; includes the routers below (A)
   app/routes/       measurements.py (A) · map.py, light_reports.py, demo.py (D)
   app/solver.py     local solve-field + astrometry.net API fallback (A, done)
+  app/pipeline.py   solver output -> drawable result: runs matching + conditions, projects planets, builds warnings (A)
   app/imaging.py    validate, read EXIF, strip EXIF, resize, round coordinates (A, done)
   app/errors.py     ApiError: code + plain message + next step (A)
   app/matching.py
@@ -158,7 +159,7 @@ Frontend renders overlays on the photo (SVG or canvas)
 | GET | `/api/map` | measurements + light reports for the map |
 | POST | `/api/light-reports` | photo + lat, lon, category, note → report + drafted message |
 | GET | `/api/demo/{name}` | cached demo result, same shape as a real result |
-| GET | `/api/health` | for the keep-alive ping and a quick deploy check |
+| GET | `/api/health` | keep-alive ping and deploy check: `{ status, solver: { mode, using: local\|api\|stub\|none, local_available, index_files, api_key_set } }` (no secrets). `using` must be `local` in production |
 
 ### Data model (Supabase)
 - **measurements:** id, created_at, status (pending|solved|failed), taken_at_utc, lat_rounded, lon_rounded, score, limiting_mag, pct_lost, confidence, flags (jsonb — includes exposure_s, iso, f_number, solve_seconds, solver_used), image_url (EXIF-stripped copy), solved (bool), is_demo (bool), plus `step` (text), `result` (jsonb, the solver block today) and `error` (jsonb) so polling can serve progress, results and failure messages. SQL: `backend/supabase/schema.sql`. Without Supabase credentials the backend uses `LocalStore` (JSON files under `backend/storage/`)
@@ -176,12 +177,12 @@ Frontend renders overlays on the photo (SVG or canvas)
 2. `astrometry-engine -c <cfg> photo.axy` matches star patterns and writes `.wcs`, `.corr`, `.match`, `.solved`.
 
 Settings that came out of measuring on real photos:
-- **Scale hint:** the photo's x-axis width from the EXIF 35 mm focal length (`2·atan(S/2f)`, S = 36 mm landscape / 24 mm portrait), searched at 0.35×–1.2× of that estimate (phone crops make EXIF wrong), clamped to 2–120°. No EXIF: 10–100°.
+- **Scale hint:** the photo's x-axis width from the EXIF 35 mm focal length (`2·atan(S/2f)`, S = 36 mm landscape / 24 mm portrait), searched at 0.35×–1.2× of that estimate (phone crops make EXIF wrong), clamped to 2–120°. **No EXIF** (chat apps and screenshots strip it, so this is common): try windows in turn, extracting stars only once and re-running just the engine with a new scale (`ANAPPL1`/`ANAPPU1`/`ANCLIM` in the `.axy`): 30–80° (phone main camera, portrait or landscape), then 10–30° (zoomed/cropped), then 80–120° (ultra-wide). One 10–100° search was about 10x slower: a real phone photo solved in 20 s end to end with the staged windows and timed out at 90 s with 10–100°. Telescope images (about 1° wide) are outside every window and are not supported.
 - **Distortion:** `--tweak-order 3` (SIP) and `--crpix-center`. On two test photos, catalog stars land a median 1–2 px from detections, worst 10–15 px at the edges.
 - **`--objs 2000`:** keeps the brightest 2000 detections. It cut the engine step from 12 s to 3–5 s with identical matches (photos with bright foreground yield 7–10k mostly-noise detections). Faint stars stay in because ghost-star detection needs them.
 - **No `--downsample`:** `--downsample 2` was slower overall and halved the matches. The upload step already caps the photo at 2048 px on the long side.
 - **Don't trust the exit code:** `solve-field` exits 0 even when it didn't solve. We accept a solve only if the `.solved` file exists **and** the `.corr` file has at least 8 matched stars **and** the `.match` log-odds is at least 30 (solve-field itself solves at about 20.7). Weak solves become `no_match`.
-- **Time limit:** `LOCAL_SOLVE_TIMEOUT_S` (default 90) is both `--cpulimit` and a wall-clock kill of the whole process group; no solver processes are left behind. Hitting it gives `solve_timeout`, reported separately from `no_match`.
+- **Time limit:** `LOCAL_SOLVE_TIMEOUT_S` (default 90) is the total for the engine step, split across the windows (55% for the first, the rest shared). Each window is limited by `--cpulimit` and a wall-clock kill of the whole process group; no solver processes are left behind. A window that is searched fully with no match moves on to the next; if any window ran out of time the failure is `solve_timeout`, otherwise `no_match`.
 
 **Fallback: public nova.astrometry.net API** (`https://nova.astrometry.net`). Flow: `POST /api/login` with `request-json={"apikey": ...}` → `POST /api/upload` (multipart: `request-json` + `file`) → poll `/api/submissions/{id}` for a job id (the list holds `null` while queued) → poll `/api/jobs/{id}` until `success`/`failure` → download `/wcs_file/{job}`, `/axy_file/{job}`, `/corr_file/{job}`. Uploads are sent with `publicly_visible: "n"`, only the stripped photo, and no location or time. Login errors come back as HTTP 200 with `{"status": "error", "errormessage": ...}`.
 - Measured Nov 7: a real photo solved in **41 s** with the key working (an earlier test the same day took about 10 minutes, so queue time varies a lot). Nova downsamples internally, so it finds fewer stars (430 detected, 49 matched vs 2000 / 94 locally) but the WCS agrees with the local one (same field size and pixel scale; Big Dipper stars within 3.4 px).

@@ -6,12 +6,13 @@
 # Optional: copy backend/.env.example to backend/.env to add keys (nova fallback, Supabase, AI).
 # It works without one: the local solver needs no key. Job data lives in the `storage` volume.
 #
-# Real-photo solver tests:        docker compose --profile test run --rm tests
+# Real-photo solver tests:        docker compose --profile test run --rm --build tests
 name: astroscan
 
 services:
   backend:
     build: ./backend
+    image: astroscan-backend   # shared with the tests service so they always run the same code
     ports:
       - "8000:8000"
     env_file:
@@ -42,6 +43,7 @@ services:
   tests:
     profiles: ["test"]
     build: ./backend
+    image: astroscan-backend
     working_dir: /srv
     volumes:
       - ./backend/tests:/srv/tests:ro
