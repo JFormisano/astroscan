@@ -153,6 +153,13 @@ def test_fits_pixels_are_one_based_and_y_is_not_flipped():
     assert abs(float(flipped_dec) - float(dec)) > 0.01
 
 
+def test_source_array_accepts_a_numpy_array():
+    empty = matching._source_array(np.zeros((0, 2)))
+    assert empty.shape == (0, 2)
+    rows = matching._source_array(np.array([[1.5, 2.5], [3.0, 4.0]]))
+    assert rows.tolist() == [[1.5, 2.5], [3.0, 4.0]]
+
+
 def test_star_outside_the_frame_is_excluded():
     result = matching.match_stars(make_tan_header(SIRIUS_RA, SIRIUS_DEC), WIDTH, HEIGHT, [])
     assert all(star["hip"] != POLARIS_HIP for star in result["stars"])

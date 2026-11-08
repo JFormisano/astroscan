@@ -191,7 +191,8 @@ def _sky_coord(wcs, x, y):
 
 
 def _source_array(sources_xy):
-    if not sources_xy:
+    # A numpy array has no useful truth value; `if not sources_xy` raises.
+    if sources_xy is None or len(sources_xy) == 0:
         return np.zeros((0, 2), dtype=float)
     rows = []
     for source in sources_xy:
