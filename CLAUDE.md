@@ -8,9 +8,9 @@ Team: Person A (photo in, solve out) · Person B (astronomy math) · Person C (m
 Pitch: the whole team works on it together after the hour-18 feature freeze.
 
 **Status (Nov 7, from git history and the last test runs):**
-- Merged to `main`: #1 upload backend (A), #1 upload/processing frontend + #5/#7/#12/#13 screens built on fake data (C), #8 map route and page (D).
-- **#2 plate solving (A): done on branch `jacob-#2_Plate_Solving`, not yet merged.** Local `solve-field` in Docker is primary, the public nova API is the fallback, both tested on real photos. Output shape and pixel convention: `docs/solver-output.md`.
-- Still open: `docs/result-schema.json` (not agreed yet), B's matching/scoring/conditions (modules are empty stubs), #9–#11 (D; `ai.py`, `demo.py`, `light_reports.py` are stubs and `demo_cache/` is empty), deploy, Night-mode photo tests.
+- Merged to `main`: #1 upload (A backend, C frontend), **#2 plate solving (A, PR #4)**, #5/#7/#12/#13 screens (C), #8 map (D), #9 light reports (D), #11 demo mode (D), and B's catalog, `match_stars` and `evaluate_conditions`.
+- **Real uploads now go solve -> match -> results page.** `app/pipeline.py` (A) runs B's matching and conditions after the solver and returns stars with ghost flags, constellation lines, projected planets and warnings in the demo-cache shape. A real phone photo shows names, constellation lines, the hidden-stars toggle and the under-the-hood view. Open PRs from A: staged field-size windows, one-server deploy and `/api/health` solver status; the pipeline wiring is on top of those.
+- Still open: **`scoring.py` (B) is not written, so real photos have no score, confidence or limiting magnitude** (the page hides the score card without one); the AI explainer (#10, `ai.py` has only the light-report drafter); `docs/result-schema.json` (not agreed; the demo cache and `docs/solver-output.md` describe the shape in use); Night-mode phone photo tests; deploy to a real server (configs written and tested locally only).
 
 ---
 
@@ -135,6 +135,7 @@ Frontend renders overlays on the photo (SVG or canvas)
   app/main.py       app setup; includes the routers below (A)
   app/routes/       measurements.py (A) · map.py, light_reports.py, demo.py (D)
   app/solver.py     local solve-field + astrometry.net API fallback (A, done)
+  app/pipeline.py   solver output -> drawable result: runs matching + conditions, projects planets, builds warnings (A)
   app/imaging.py    validate, read EXIF, strip EXIF, resize, round coordinates (A, done)
   app/errors.py     ApiError: code + plain message + next step (A)
   app/matching.py

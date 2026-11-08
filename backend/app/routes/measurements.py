@@ -14,7 +14,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse
 
-from app import imaging, solver
+from app import imaging, pipeline, solver
 from app.db import Store, get_store
 from app.errors import ApiError
 
@@ -76,6 +76,16 @@ def run_job(store: Store, job_id: str, image_bytes: bytes) -> None:
             taken_at,
             on_step=lambda s: store.update_job(job_id, {"step": s}),
             hints=job.get("flags") or {},
+        )
+        # Add star names, constellation lines, planets and warnings (Person B's matching/conditions).
+        # Never fails the job: a photo that solved stays solved even if these extras break.
+        result = pipeline.analyze(
+            result,
+            lat=job["lat_rounded"],
+            lon=job["lon_rounded"],
+            taken_at_utc=job["taken_at_utc"],
+            image_url=job.get("image_url"),
+            on_step=lambda s: store.update_job(job_id, {"step": s}),
         )
         flags = {**(job.get("flags") or {}), "solve_seconds": round(time.monotonic() - t0, 2)}
         flags["solver_used"] = result.get("solver_used", flags.get("solver_used"))
