@@ -2627,7 +2627,7 @@
    "solve_seconds": 14.2,
    "solver_used": "local"
   },
-  "explainer": "Your sky scored 7 out of 9, which is typical of a bright city center. Your phone picked up stars down to about magnitude 4.3, so about 58% of the naked-eye stars a dark sky would show here are washed out by artificial light. Orion's brightest stars still shine through, but the fainter stars around them are gone.\n\nWhat helps: fully shielded fixtures that point light down, warmer bulbs (3000 K or below), and lights that switch off or dim when nobody needs them."
+  "explainer": "Your sky scored 7 out of 9, which is typical of a suburban / city edge sky (1 is darkest, 9 is brightest). Your phone picked up stars down to about magnitude 4.3; the higher that number, the fainter the stars you can see. About 58% of the naked-eye stars a truly dark sky would show here are hidden by artificial light. Tap \"Show the stars light pollution is hiding\" above to see them. You can still pick out Orion.\n\nThis is your sky as your phone saw it: exposure, lens and Night mode all affect how many stars a photo shows.\n\nLight here comes from many sources: streetlights, parking lots, signs and buildings. Fully shielded fixtures that point down, warmer bulbs (3000 K or below), and turning lights off when nobody needs them all help. If you spot a light that's especially bad, you can report it and we'll draft a request for you."
  },
  "error": null,
  "image_url": null,
