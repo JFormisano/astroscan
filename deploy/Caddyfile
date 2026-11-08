@@ -1,0 +1,11 @@
+# HTTPS front door for docker-compose.prod.yml. Caddy gets and renews the TLS certificate by itself
+# for the domain in $DOMAIN (the domain's DNS must already point at this server, ports 80/443 open).
+# It forwards everything to the frontend container, whose nginx serves the app and sends /api on
+# to the backend, so the browser only ever talks to one origin.
+{$DOMAIN} {
+	encode gzip
+	request_body {
+		max_size 20MB
+	}
+	reverse_proxy frontend:80
+}
