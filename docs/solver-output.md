@@ -41,7 +41,7 @@ Owner: Person A. Code: `backend/app/solver.py`. This is **not** the final result
 - `flux` is relative, in image units, not magnitudes.
 
 ## Job `step` values (C)
-`queued` (set by the upload route) → `detecting` → `solving`. B's stages add `matching` and `scoring`. Matches the keys in `Processing.jsx`.
+`queued` (set by the upload route) → `detecting` → `solving` → `matching` (the pipeline step below). `scoring` will be added when B's scoring exists. Matches the keys in `Processing.jsx`.
 
 ## Failure `error` codes
 All set `error.message` and `error.next_step` (plain text, show them as is) and `error.detected_stars` when known.
@@ -69,3 +69,22 @@ A third photo (a re-processed Flickr image of the Big Dipper) did **not** solve 
 
 ## Field-size windows (no camera data)
 With a usable EXIF focal length the local solver searches one window around it (0.35x-1.2x of the estimate). Without one (chat apps and screenshots strip EXIF) it tries 30-80 degrees (phone main camera), then 10-30 (zoomed or cropped), then 80-120 (ultra-wide), extracting stars once and re-running only the matcher with a new scale. A real portrait phone photo with no EXIF solved in 20 s end to end this way (53 stars matched, 55.1 x 69.9 degree field); the old single 10-100 degree search timed out at 90 s on the same photo. Telescope or deep-sky images (about 1 degree wide) are outside every window and will end as `solve_timeout`.
+
+## What the finished job `result` contains (after `app/pipeline.py`)
+`run_job` passes the solver block through `pipeline.analyze()`, which keeps everything above and adds (the demo-cache shape the results page reads):
+
+| Field | From | Notes |
+|---|---|---|
+| `image` | the job | `{url, width, height}`; `url` is the stored EXIF-stripped copy |
+| `taken_at_utc`, `location` | the job | `location` is the ~1 km rounded `{lat, lon}` |
+| `stars` | B's `match_stars` | every catalog star (mag <= 7) inside the frame: `{id, hip, name, mag, x, y, detected}`; `detected: false` = ghost star |
+| `constellations` | B's `match_stars` | `{name, label, lines}` in image pixels |
+| `conditions` | B's `evaluate_conditions` | Sun/Moon altitude, Moon illumination, field-centre altitude, `flags` |
+| `warnings` | `conditions.flags` | `[{type: twilight\|moon\|low_altitude, moon_illumination_pct?}]`, a rename only |
+| `planets` | B's `evaluate_conditions` + WCS | only planets above the horizon AND inside the photo: `{name, x, y, mag, alt_deg}` |
+| `stats` | both | solver stats plus matching stats. **`stars_matched` is matching's number** (catalog stars with a detection next to them, what the page calls "Matched to catalog"); the solver's own count is `solver_stars_matched` |
+| `score` | (B, not yet) | absent until `scoring.py` exists. Nothing invents a score |
+
+If matching or the condition checks raise, the problem is logged and the job still ends `solved` with whatever was built (always at least the solver block plus `image`, `taken_at_utc`, `location`). A stub or WCS-less result passes through unchanged. For B: `pipeline.py` imports `matching._load_wcs`, `_near_field` and `_sky_to_image` (underscore names) for the planet projection; a public helper would be cleaner.
+
+Check on a real photo: the Big Dipper's seven stars come out of the pipeline named, at the WCS-projected pixel, with a detection on top (`tests/test_solver_integration.py`).

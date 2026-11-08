@@ -110,3 +110,26 @@ def test_blank_sky_fails_fast_with_a_star_count(monkeypatch):
         with pytest.raises(solver.SolveFailed) as e:
             solver.solve(path, 43.0, -78.79, None)
     assert e.value.code == "too_few_stars" and e.value.detected_stars is not None
+
+
+def test_full_chain_names_the_big_dipper_stars_and_marks_them_detected(solved):
+    """Solve -> analyze on a real photo: the pipeline's own output (what the page draws) must carry
+    the Big Dipper's named stars at the right pixels with a detection on top of them."""
+    from app import pipeline
+
+    _, result, _ = solved
+    out = pipeline.analyze(
+        result, lat=43.0, lon=-78.79, taken_at_utc="2026-11-08T05:00:00+00:00", image_url="/x.jpg"
+    )
+    assert out["stars"] and out["constellations"] and "warnings" in out
+    named = {s["name"]: s for s in out["stars"] if s["name"] in BIG_DIPPER}
+    assert len(named) >= 4, f"Big Dipper stars found in the pipeline output: {sorted(named)}"
+    detected = [n for n, s in named.items() if s["detected"]]
+    assert len(detected) >= len(named) - 1, f"named {sorted(named)}, detected {sorted(detected)}"
+    # the pipeline's pixel for a named star equals where the WCS projects its catalog position
+    from astropy.io import fits
+
+    wcs = WCS(fits.Header(result["wcs"]))
+    for name, star in named.items():
+        x, y = (float(v) for v in wcs.all_world2pix(*BIG_DIPPER[name], 0))
+        assert math.hypot(star["x"] - x, star["y"] - y) < 3, name
