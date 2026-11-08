@@ -33,6 +33,9 @@ export function toView(job) {
     sources: Array.isArray(r.sources) ? r.sources : [],
     warnings: toWarnings(r),
     score: r.score && typeof r.score.value === 'number' ? r.score : null,
+    // Scoring ran but couldn't give a number (scoring.py returns value: null when too few
+    // catalog stars are in view), as opposed to scoring not having run at all.
+    scoreFailed: Boolean(r.score) && typeof r.score.value !== 'number',
     stats: hasStats ? stats : null,
     explainer: typeof r.explainer === 'string' ? r.explainer : null,
     // True once Person B's matching has run (catalog stars projected into the photo).

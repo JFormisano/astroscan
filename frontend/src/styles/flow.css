@@ -147,3 +147,9 @@
 /* Failed solve */
 .big-stat { font-size: 1.1rem; }
 .big-stat strong { font-size: 2.4rem; margin-right: 6px; }
+
+/* Score details (confidence reasons, "or fainter") */
+.dd-note { font-size: 0.8rem; font-weight: 500; color: var(--muted); }
+.reasons { margin: 0 0 10px; }
+.reasons p { margin: 0 0 4px; }
+.reasons ul { margin: 0; padding-left: 20px; line-height: 1.5; }
