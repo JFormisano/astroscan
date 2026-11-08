@@ -23,6 +23,8 @@ create table if not exists measurements (
 );
 
 create index if not exists measurements_status_idx on measurements (status);
+-- GET /api/map lists the newest solved/failed rows (see SupabaseStore.list_map_points).
+create index if not exists measurements_map_idx on measurements (created_at desc) where status in ('solved', 'failed');
 
 -- Public bucket for the EXIF-stripped photos (they contain no location data).
 insert into storage.buckets (id, name, public) values ('images', 'images', true)

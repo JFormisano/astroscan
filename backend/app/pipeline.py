@@ -4,6 +4,7 @@
 
     matching.match_stars       -> stars (with ghost flags), constellations, catalog stats
     conditions.evaluate_conditions -> Sun/Moon/horizon flags and planet positions
+    scoring.score_sky          -> score {value, limiting_mag, pct_lost, confidence, ...}
 
 It only renames and projects; there is no new astronomy here. The result keeps everything the
 solver returned (solver_used, wcs, sources, stats) so the under-the-hood view and any later
@@ -12,7 +13,8 @@ stage (scoring, AI) can use it, and gains the demo-cache shape (docs/solver-outp
     image {url, width, height} · taken_at_utc · location {lat, lon} · stars · constellations ·
     planets [{name, x, y, mag, ...}] · warnings [{type, ...}] · conditions · stats
 
-No `score` yet: scoring.py (Person B) is not written. The page hides the score card without one.
+`score` is only added when scoring produced a 1-9 value; the page hides the score card without one
+(and /api/map lists a solved job only once it has a score).
 
 Failure policy: a photo that SOLVED is never turned into a failed job because the extras broke.
 If matching or conditions raise, the problem is logged and what we have is returned.
@@ -23,11 +25,12 @@ from collections.abc import Callable
 
 import numpy as np
 
-from app import conditions, matching
+from app import conditions, matching, scoring
 
 log = logging.getLogger(__name__)
 
 STEP_MATCHING = "matching"  # one of the step keys Processing.jsx knows
+STEP_SCORING = "scoring"
 
 
 def analyze(
@@ -37,12 +40,14 @@ def analyze(
     lon: float,
     taken_at_utc: str,
     image_url: str | None = None,
+    exif: dict | None = None,
     on_step: Callable[[str], None] | None = None,
 ) -> dict:
     """Return `solver_result` plus stars, constellations, planets and warnings. Never raises.
 
     `lat`/`lon` are the ~1 km rounded values and `taken_at_utc` an ISO 8601 string with a time zone
-    (the job's stored values). A result without a WCS (the stub solver) is returned unchanged.
+    (the job's stored values). `exif` is the job's flags (exposure_s, iso, f_number) for the score's
+    confidence. A result without a WCS (the stub solver) is returned unchanged.
     """
     stats = solver_result.get("stats") or {}
     width, height = stats.get("image_width_px"), stats.get("image_height_px")
@@ -75,11 +80,27 @@ def analyze(
         return result
     result["conditions"] = {k: v for k, v in cond.items() if k != "planets"}
     result["warnings"] = _warnings(cond)
+    _add_score(result, cond, exif, on_step)
     try:
         result["planets"] = _project_planets(cond.get("planets") or [], wcs, width, height)
     except Exception:
         log.exception("planet projection failed; returning without planets")
     return result
+
+
+def _add_score(result: dict, cond: dict, exif: dict | None, on_step: Callable[[str], None] | None) -> None:
+    """Person B's score for the matched stars. Never raises; leaves `score` out if there is no 1-9 value."""
+    if on_step:
+        on_step(STEP_SCORING)
+    try:
+        score = scoring.score_sky({"stars": result["stars"], "stats": result["stats"]}, cond, exif or {})
+    except Exception:
+        log.exception("scoring failed; returning the result without a sky score")
+        return
+    if score.get("value") is None:
+        log.info("too few catalog stars in the frame to score this photo")
+        return
+    result["score"] = score
 
 
 def _merge_stats(solver_stats: dict, match_stats: dict) -> dict:

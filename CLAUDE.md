@@ -10,7 +10,8 @@ Pitch: the whole team works on it together after the hour-18 feature freeze.
 **Status (Nov 7, from git history and the last test runs):**
 - Merged to `main`: #1 upload (A backend, C frontend), **#2 plate solving (A, PR #4)**, #5/#7/#12/#13 screens (C), #8 map (D), #9 light reports (D), #11 demo mode (D), and B's catalog, `match_stars` and `evaluate_conditions`.
 - **Real uploads now go solve -> match -> results page.** `app/pipeline.py` (A) runs B's matching and conditions after the solver and returns stars with ghost flags, constellation lines, projected planets and warnings in the demo-cache shape. A real phone photo shows names, constellation lines, the hidden-stars toggle and the under-the-hood view. Open PRs from A: staged field-size windows, one-server deploy and `/api/health` solver status; the pipeline wiring is on top of those.
-- Still open: **`scoring.py` (B) is not written, so real photos have no score, confidence or limiting magnitude** (the page hides the score card without one); the AI explainer (#10, `ai.py` has only the light-report drafter); `docs/result-schema.json` (not agreed; the demo cache and `docs/solver-output.md` describe the shape in use); Night-mode phone photo tests; deploy to a real server (configs written and tested locally only).
+- **Real measurements now reach the map (#8, A).** `run_job` copies the score block (`value`, `limiting_mag`, `pct_lost`, `confidence`) to top-level job columns; `/api/map` lists solved-with-score jobs and `too_few_stars` failures from a small `map_index.json` (LocalStore) or narrow queries (Supabase, never run against a real project). `pipeline.analyze` now runs B's `score_sky` (step `scoring`), so a real solved photo gets `result.score` and a coloured dot.
+- Still open: **the score is B's uncalibrated table** (published naked-eye limits, not our own photos); the AI explainer (#10, `ai.py` has only the light-report drafter); `docs/result-schema.json` (not agreed; the demo cache and `docs/solver-output.md` describe the shape in use); Night-mode phone photo tests; deploy to a real server (configs written and tested locally only).
 
 ---
 
@@ -156,7 +157,7 @@ Frontend renders overlays on the photo (SVG or canvas)
 | POST | `/api/measurements` | multipart image + lat, lon, optional taken_at / tz_offset_minutes (used when EXIF has no time) → `{ job_id }` |
 | GET | `/api/measurements/{job_id}` | `{ job_id, status: pending\|solved\|failed, step, result, error, image_url, taken_at_utc, lat, lon, flags }`. `step` is `queued\|detecting\|solving` (then B's `matching\|scoring`). `error` is `{ code, message, next_step, detected_stars? }` |
 | GET | `/api/measurements/{job_id}/image` | the EXIF-stripped photo (local storage only; Supabase serves its own URL) |
-| GET | `/api/map` | measurements + light reports for the map |
+| GET | `/api/map` | `{ measurements, light_reports }` for the map. Measurements are real jobs from `Store.list_map_points`: solved with a score, or failed `too_few_stars` (score null, confidence low); rounded location only. Sample points (`is_demo`) follow them unless `MAP_SAMPLE_POINTS=0` |
 | POST | `/api/light-reports` | photo + lat, lon, category, note → report + drafted message |
 | GET | `/api/demo/{name}` | cached demo result, same shape as a real result |
 | GET | `/api/health` | keep-alive ping and deploy check: `{ status, solver: { mode, using: local\|api\|stub\|none, local_available, index_files, api_key_set } }` (no secrets). `using` must be `local` in production |

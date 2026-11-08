@@ -100,7 +100,7 @@ Containers restart by themselves after a crash or a server reboot. **Re-measure 
 Order matters only in one place: the frontend needs the backend's URL, and the backend needs the frontend's URL (for CORS). Deploy the backend first, then the frontend, then paste the frontend URL back into the backend.
 
 ### 3a. Supabase (jobs and photos survive restarts)
-1. New project at supabase.com. SQL editor → paste and run `backend/supabase/schema.sql` (creates the `measurements` table and a public `images` bucket).
+1. New project at supabase.com. SQL editor → paste and run `backend/supabase/schema.sql` (creates the `measurements` table and a public `images` bucket), then `backend/supabase/light_reports.sql` (the `light_reports` table the light-report feature needs).
 2. Settings → API: copy the project URL and the **service_role** key (a secret; backend only, never the frontend).
 
 Heads up: the Supabase code path (`SupabaseStore` in `backend/app/db.py`) is written but has **not been run against a real project yet**. The smoke test in step d is how you find out. Without Supabase the backend still works, but jobs live on the instance's disk and a result link dies when the service redeploys.
@@ -139,6 +139,7 @@ The backend is one image (`backend/Dockerfile`) that listens on `$PORT` (default
 | `ASTROMETRY_API_KEY` | backend | nova.astrometry.net key for the fallback |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` | backend | both set → Supabase; otherwise local disk |
 | `STORAGE_DIR` | backend | local-disk location (the image sets `/srv/storage`) |
+| `MAP_SAMPLE_POINTS` | backend | `0` hides the fake sample dots on `/map` (default shows them after the real ones). Set it to `0` for the judged deployment |
 | `FRONTEND_ORIGINS` | backend | allowed browser origins (CORS), comma-separated |
 | `MAX_UPLOAD_MB` | backend | upload limit, default 15 |
 | `ANTHROPIC_API_KEY` | backend | AI explainer and report drafts (Person D) |

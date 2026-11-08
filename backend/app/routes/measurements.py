@@ -55,6 +55,23 @@ async def _read_limited(file: UploadFile, request: Request) -> bytes:
     return b"".join(chunks)
 
 
+def _score_columns(result: dict) -> dict:
+    """Copy the score block's headline numbers to the job's top-level columns (what /api/map reads).
+
+    `result["score"]` comes from Person B's scoring.score_sky ({value, limiting_mag, pct_lost,
+    confidence, ...}) once it is wired into the pipeline; without it there is nothing to copy.
+    """
+    block = result.get("score")
+    if not isinstance(block, dict) or block.get("value") is None:
+        return {}
+    return {
+        "score": block["value"],
+        "limiting_mag": block.get("limiting_mag"),
+        "pct_lost": block.get("pct_lost"),
+        "confidence": block.get("confidence"),
+    }
+
+
 def run_job(store: Store, job_id: str, image_bytes: bytes) -> None:
     """Background task: solve one job and record the outcome. Never leaves a job `pending`."""
     t0 = time.monotonic()
@@ -77,7 +94,7 @@ def run_job(store: Store, job_id: str, image_bytes: bytes) -> None:
             on_step=lambda s: store.update_job(job_id, {"step": s}),
             hints=job.get("flags") or {},
         )
-        # Add star names, constellation lines, planets and warnings (Person B's matching/conditions).
+        # Add star names, constellation lines, planets, warnings and the score (Person B's matching/conditions/scoring).
         # Never fails the job: a photo that solved stays solved even if these extras break.
         result = pipeline.analyze(
             result,
@@ -85,14 +102,20 @@ def run_job(store: Store, job_id: str, image_bytes: bytes) -> None:
             lon=job["lon_rounded"],
             taken_at_utc=job["taken_at_utc"],
             image_url=job.get("image_url"),
+            exif=job.get("flags") or {},
             on_step=lambda s: store.update_job(job_id, {"step": s}),
         )
         flags = {**(job.get("flags") or {}), "solve_seconds": round(time.monotonic() - t0, 2)}
         flags["solver_used"] = result.get("solver_used", flags.get("solver_used"))
-        store.update_job(job_id, {"status": "solved", "solved": True, "step": None, "result": result, "flags": flags})
+        fields = {"status": "solved", "solved": True, "step": None, "result": result, "flags": flags}
+        fields.update(_score_columns(result))
+        store.update_job(job_id, fields)
     except solver.SolveFailed as e:
         error = {"code": e.code, "message": e.message, "next_step": e.next_step, "detected_stars": e.detected_stars}
-        store.update_job(job_id, {"status": "failed", "step": None, "error": error})
+        fields = {"status": "failed", "step": None, "error": error}
+        if e.code == "too_few_stars":
+            fields["confidence"] = "low"  # still goes on the map as a grey dot (CLAUDE.md section 4)
+        store.update_job(job_id, fields)
     except Exception:  # anything unexpected: plain message in the UI, full traceback in the server log
         log.exception("Job %s crashed", job_id)
         store.update_job(

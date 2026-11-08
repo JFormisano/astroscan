@@ -80,7 +80,7 @@ def test_result_has_the_demo_shape_fields_the_page_reads():
     assert result["taken_at_utc"] == NIGHT and result["location"] == {"lat": 43.0, "lon": -78.79}
     assert len(result["stars"]) > 50 and all({"x", "y", "mag", "detected"} <= set(s) for s in result["stars"])
     assert result["constellations"] and all({"name", "label", "lines"} <= set(c) for c in result["constellations"])
-    assert "score" not in result  # scoring.py (Person B) isn't written yet: never invent a score
+    assert result["score"]["value"] in range(1, 10) and 0 <= result["score"]["pct_lost"] <= 100
     json.dumps(result)  # it is stored as JSON
 
 
@@ -196,7 +196,32 @@ def test_garbage_wcs_does_not_raise():
 def test_reports_the_matching_step():
     steps = []
     run(solver_block(), on_step=steps.append)
-    assert steps == ["matching"]
+    assert steps == ["matching", "scoring"]
+
+
+def test_score_uses_the_matched_stars_and_the_photos_exif(monkeypatch):
+    seen = {}
+
+    def fake_score(match_result, cond, exif):
+        seen.update(match_result=match_result, cond=cond, exif=exif)
+        return {"value": 6, "limiting_mag": 4.5, "pct_lost": 60.0, "confidence": "low"}
+
+    monkeypatch.setattr(pipeline.scoring, "score_sky", fake_score)
+    result = run(solver_block(), exif={"iso": 800})
+    assert result["score"]["value"] == 6
+    assert seen["exif"] == {"iso": 800} and "flags" in seen["cond"]
+    assert seen["match_result"]["stars"] is result["stars"] and "stars_matched" in seen["match_result"]["stats"]
+
+
+def test_a_scoring_crash_keeps_everything_else(monkeypatch):
+    monkeypatch.setattr(pipeline.scoring, "score_sky", lambda *a: (_ for _ in ()).throw(RuntimeError("x")))
+    result = run(solver_block())
+    assert "score" not in result and result["stars"] and "planets" in result
+
+
+def test_no_score_when_there_are_too_few_catalog_stars_to_judge(monkeypatch):
+    monkeypatch.setattr(pipeline.scoring, "score_sky", lambda *a: {"value": None, "limiting_mag": None})
+    assert "score" not in run(solver_block())
 
 
 # --- inside the upload flow ----------------------------------------------------------------
