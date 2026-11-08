@@ -1,12 +1,14 @@
-// Route: / — Person D. Opens in a telescope. Tap constellations to look around,
-// then zoom into the title. Skip jumps straight to upload / sample photo (#11).
+// Route: / — Person D. Opens in a telescope, then slowly zooms into the title.
+// Tap a constellation to look around first. Skip jumps straight to the menu (#11).
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Eyepiece from '../components/Eyepiece.jsx'
-import StarField from '../components/StarField.jsx'
 import { DEFAULT_DEMO } from '../demoSamples.js'
 import '../styles/flow.css'
 import '../styles/landing.css'
+
+const GAZE_MS = 1200
+const LOOK_MS = 5200
 
 function motionReduced() {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -16,6 +18,8 @@ export default function Landing() {
   const [reduced, setReduced] = useState(motionReduced)
   const [open, setOpen] = useState(motionReduced)
   const [instant, setInstant] = useState(motionReduced)
+  const [holding, setHolding] = useState(false)
+  const [settled, setSettled] = useState(motionReduced)
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -28,6 +32,25 @@ export default function Landing() {
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)
   }, [])
+
+  useEffect(() => {
+    if (reduced || open) return
+    const id = window.setTimeout(() => {
+      setInstant(false)
+      setOpen(true)
+    }, holding ? LOOK_MS : GAZE_MS)
+    return () => window.clearTimeout(id)
+  }, [reduced, open, holding])
+
+  useEffect(() => {
+    if (!open) return undefined
+    if (instant) {
+      setSettled(true)
+      return undefined
+    }
+    const id = window.setTimeout(() => setSettled(true), 3400)
+    return () => window.clearTimeout(id)
+  }, [open, instant])
 
   function skip() {
     setInstant(true)
@@ -47,14 +70,17 @@ export default function Landing() {
 
   return (
     <main className={className}>
-      <StarField animate={!reduced} />
       <div className="veil" aria-hidden="true" />
       <div className="reticle" aria-hidden="true">
         <svg viewBox="0 0 100 100">
           <circle cx="50" cy="50" r="47" fill="none" stroke="rgba(246, 243, 236, 0.85)" strokeWidth="0.6" />
         </svg>
       </div>
-      {open ? null : <Eyepiece onEnter={zoomIn} onSkip={skip} />}
+      {reduced ? null : (
+        <div className="scope-layer" inert={settled ? true : undefined}>
+          <Eyepiece onEnter={zoomIn} onSkip={skip} onLook={() => setHolding(true)} />
+        </div>
+      )}
       <div className="landing-copy" inert={open ? undefined : true}>
         <div className="hero">
           <h1>AstroScan</h1>

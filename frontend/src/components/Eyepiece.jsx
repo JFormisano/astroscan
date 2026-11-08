@@ -50,13 +50,16 @@ function Figure({ stars, lines }) {
   )
 }
 
-export default function Eyepiece({ onEnter, onSkip }) {
+export default function Eyepiece({ onEnter, onSkip, onLook }) {
   const [activeId, setActiveId] = useState(null)
   const active = FIGURES.find((figure) => figure.id === activeId) ?? null
 
   function choose(id) {
     if (id === activeId) onEnter()
-    else setActiveId(id)
+    else {
+      setActiveId(id)
+      onLook?.()
+    }
   }
 
   return (

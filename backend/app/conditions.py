@@ -11,6 +11,7 @@ import math
 from datetime import datetime, timezone
 
 import astronomy
+import numpy as np
 
 # Mercury through Saturn, in outward order. Uranus and Neptune are too faint
 # for a phone photo of the sky, so they are left out.
@@ -138,6 +139,32 @@ def _body_horizontal(body, time, observer):
         of_date.dec,
         astronomy.Refraction.Airless,
     )
+
+
+def altitudes_deg(lat, lon, taken_at, ra_deg, dec_deg):
+    """Geometric altitude of each J2000 direction, in degrees.
+
+    ra_deg and dec_deg are degrees (a number or a sequence of the same length).
+    taken_at is timezone-aware ISO 8601. The altitude is airless and matches
+    field_center_alt_deg from evaluate_conditions for the same direction.
+    """
+    lat_deg = _require_degrees("lat", lat, -90.0, 90.0)
+    lon_deg = _require_degrees("lon", lon, -180.0, 180.0)
+    ra = np.atleast_1d(np.asarray(ra_deg, dtype=float))
+    dec = np.atleast_1d(np.asarray(dec_deg, dtype=float))
+    if ra.shape != dec.shape:
+        raise ValueError("ra_deg and dec_deg must have the same shape")
+    if ra.size and not (np.isfinite(ra).all() and np.isfinite(dec).all()):
+        raise ValueError("ra_deg and dec_deg must be finite")
+    if ra.size and (np.any(dec < -90.0) or np.any(dec > 90.0)):
+        raise ValueError("dec_deg must be between -90 and 90 degrees")
+    time = _parse_taken_at(taken_at)
+    observer = astronomy.Observer(lat_deg, lon_deg, 0.0)
+    out = np.empty(ra.shape, dtype=float)
+    flat = out.ravel()
+    for index, (ra_i, dec_i) in enumerate(zip(ra.ravel(), dec.ravel())):
+        flat[index] = _j2000_altitude_deg(time, observer, float(ra_i), float(dec_i))
+    return out
 
 
 def _j2000_altitude_deg(time, observer, ra_deg, dec_deg):

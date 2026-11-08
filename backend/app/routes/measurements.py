@@ -103,6 +103,7 @@ def run_job(store: Store, job_id: str, image_bytes: bytes) -> None:
             taken_at_utc=job["taken_at_utc"],
             image_url=job.get("image_url"),
             exif=job.get("flags") or {},
+            image_path=tmp_path,
             on_step=lambda s: store.update_job(job_id, {"step": s}),
         )
         flags = {**(job.get("flags") or {}), "solve_seconds": round(time.monotonic() - t0, 2)}

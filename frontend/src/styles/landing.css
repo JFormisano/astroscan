@@ -1,4 +1,4 @@
-/* Landing eyepiece. Full viewport, then the same star field behind the intro copy. */
+/* Landing eyepiece. The star field itself lives in sky.css, behind every page. */
 .eyepiece {
   --amber: #e4a04a;
   --ink: #f6f3ec;
@@ -11,7 +11,7 @@
   padding: 0;
   min-height: 100vh;
   min-height: 100dvh;
-  background: #05070f;
+  background: transparent;
   color: var(--ink);
   overflow-x: hidden;
 }
@@ -30,16 +30,7 @@ body:has(.eyepiece:not(.is-open)) {
   overflow: hidden;
 }
 
-.starfield {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-  z-index: 0;
-}
-
-/* Black glass with a soft circular hole. Scaling it is the zoom-out. */
+/* Black glass with a soft circular hole. Scaling it is the slow zoom into the title. */
 .veil {
   position: fixed;
   inset: 0;
@@ -63,7 +54,7 @@ body:has(.eyepiece:not(.is-open)) {
     rgba(0, 0, 0, 0.82) min(48vw, 58vmin),
     #000 min(52vw, 64vmin)
   );
-  transition: transform 0.8s cubic-bezier(0.22, 0.61, 0.36, 1);
+  transition: transform 3.2s cubic-bezier(0.45, 0.05, 0.2, 1), opacity 1s ease 1.5s;
 }
 
 .reticle {
@@ -76,7 +67,7 @@ body:has(.eyepiece:not(.is-open)) {
   transform: translate(-50%, -50%);
   pointer-events: none;
   opacity: 0.42;
-  transition: opacity 0.28s ease;
+  transition: opacity 1.1s ease;
 }
 
 .reticle svg {
@@ -87,10 +78,24 @@ body:has(.eyepiece:not(.is-open)) {
 
 .eyepiece.is-open .veil {
   transform: scale(8);
+  opacity: 0;
 }
 
-.eyepiece.is-open .reticle {
+.eyepiece.is-open .reticle,
+.eyepiece.is-open .scope-note {
   opacity: 0;
+}
+
+.eyepiece.is-open .skip-chip {
+  opacity: 0;
+  transition: opacity 0.45s ease 2.5s;
+}
+
+/* Figures drift outward and fade. The menu title grows into the same spot. */
+.eyepiece.is-open .scope-stage {
+  transform: translate(-50%, -50%) scale(1.7);
+  opacity: 0;
+  transition: transform 3.2s cubic-bezier(0.45, 0.05, 0.2, 1), opacity 1.35s ease 0.85s;
 }
 
 /* Glassful of tappable constellations. Same box as the reticle. */
@@ -249,9 +254,9 @@ body:has(.eyepiece:not(.is-open)) {
   margin: 0 auto;
   padding: 0 20px calc(36px + env(safe-area-inset-bottom));
   opacity: 0;
-  transform: translateY(10px);
+  transform: translateY(12px);
   pointer-events: none;
-  transition: opacity 0.4s ease, transform 0.45s ease;
+  transition: opacity 1.15s ease 1.7s, transform 1.25s ease 1.55s;
 }
 
 .eyepiece.is-open .landing-copy {
@@ -263,7 +268,14 @@ body:has(.eyepiece:not(.is-open)) {
 .eyepiece.is-instant .veil,
 .eyepiece.is-instant .reticle,
 .eyepiece.is-instant .landing-copy,
-.eyepiece.is-instant .hero h1 {
+.eyepiece.is-instant .hero h1,
+.eyepiece.is-instant .hero .pitch,
+.eyepiece.is-instant .hero .btn,
+.eyepiece.is-instant .scope-stage,
+.eyepiece.is-instant .scope-title,
+.eyepiece.is-instant .constellation,
+.eyepiece.is-instant .scope-note,
+.eyepiece.is-instant .skip-chip {
   transition: none;
 }
 
@@ -279,16 +291,7 @@ body:has(.eyepiece:not(.is-open)) {
 }
 
 .hero::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  z-index: -1;
-  width: 150%;
-  height: 78%;
-  transform: translate(-50%, -52%);
-  background: radial-gradient(ellipse at center, rgba(5, 7, 15, 0.62), rgba(5, 7, 15, 0) 72%);
-  pointer-events: none;
+  content: none;
 }
 
 .hero h1 {
@@ -300,24 +303,52 @@ body:has(.eyepiece:not(.is-open)) {
   line-height: 1.02;
   color: var(--ink);
   text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
-  transform: scale(0.42);
+  transform: scale(0.34);
   opacity: 0;
 }
 
 .eyepiece.is-open .hero h1 {
   transform: none;
   opacity: 1;
-  transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.35s ease 0.12s;
+  transition: transform 3.2s cubic-bezier(0.16, 0.84, 0.22, 1), opacity 1.1s ease 0.85s;
+}
+
+.hero .pitch,
+.hero .btn {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.eyepiece.is-open .hero .pitch,
+.eyepiece.is-open .hero .btn {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.9s ease 2.15s, transform 0.9s ease 2.15s;
 }
 
 .pitch {
-  margin: 0 0 6px;
+  margin: 0 0 4px;
   text-align: center;
   font-size: clamp(1.02rem, 4.5vw, 1.2rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
   line-height: 1.35;
   color: rgba(246, 243, 236, 0.88);
-  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.65);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.75);
   text-wrap: balance;
+}
+
+/* Same size and type as the line above them, only as wide as the words. */
+.hero .btn {
+  width: auto;
+  align-self: center;
+  min-height: 44px;
+  padding: 0.42em 1.05em;
+  border-radius: 999px;
+  font-size: clamp(1.02rem, 4.5vw, 1.2rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
 }
 
 .eyepiece .btn-primary {
@@ -387,7 +418,9 @@ body:has(.eyepiece:not(.is-open)) {
 
   .landing-copy,
   .eyepiece.is-instant .landing-copy,
-  .hero h1 {
+  .hero h1,
+  .hero .pitch,
+  .hero .btn {
     opacity: 1;
     transform: none;
     pointer-events: auto;

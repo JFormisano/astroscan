@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { getMap } from '../api.js'
 import MapView from '../components/MapView.jsx'
 import { REPORT_COLOR, scoreColor } from '../components/mapColors.js'
+import '../styles/flow.css'
 
 const LEGEND = [
   { color: scoreColor(2), label: 'Dark sky (1–3)' },
@@ -36,41 +37,43 @@ export default function Map() {
   const count = data ? data.measurements.length : 0
 
   return (
-    <main>
-      <h1 style={{ marginBottom: 4 }}>Light pollution map</h1>
-      <p style={{ marginTop: 0, opacity: 0.8 }}>
+    <main className="flow">
+      <h1>Light pollution map</h1>
+      <p className="muted">
         {data
           ? `${count} sky measurement${count === 1 ? '' : 's'} and ${data.light_reports.length} light report${data.light_reports.length === 1 ? '' : 's'}. Tap a dot for details.`
           : 'Every photo adds a point to this map.'}
       </p>
 
       {error && (
-        <div role="alert" style={{ padding: 12, borderRadius: 8, background: '#3a1d24', marginBottom: 12 }}>
-          <p style={{ margin: '0 0 8px' }}>{error}</p>
-          <button type="button" onClick={retry}>Try again</button>
+        <div className="alert alert-error" role="alert">
+          <p>{error}</p>
+          <button type="button" className="btn btn-secondary" onClick={retry}>Try again</button>
         </div>
       )}
 
       {!data && !error && <p>Loading map…</p>}
 
-      {data && <MapView measurements={data.measurements} reports={data.light_reports} />}
+      {data && (
+        <div className="map-frame">
+          <MapView measurements={data.measurements} reports={data.light_reports} />
+        </div>
+      )}
 
-      <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0', display: 'flex', flexWrap: 'wrap', gap: '6px 14px', fontSize: 14 }}>
+      <ul className="map-legend">
         {LEGEND.map((item) => (
-          <li key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: '50%', background: item.color, border: '1px solid #fff' }} />
+          <li key={item.label}>
+            <span aria-hidden="true" style={{ background: item.color }} />
             {item.label}
           </li>
         ))}
       </ul>
 
-      <p style={{ fontSize: 13, opacity: 0.7 }}>
+      <p className="hint">
         Scores are Bortle-style estimates of your sky as your phone saw it. Locations are rounded to about 1 km.
       </p>
 
-      <p>
-        <Link to="/upload" style={{ color: '#8ab4ff' }}>Measure your sky</Link>
-      </p>
+      <Link className="btn btn-link" to="/upload">Measure your sky</Link>
     </main>
   )
 }

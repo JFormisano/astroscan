@@ -1,5 +1,5 @@
 {
-  "note": "Estimate, not a measurement of the Bortle scale. Naked-eye limiting magnitudes are from John E. Bortle, Sky & Telescope, February 2001. Classes 6–9 are single figures in that article; the steps between them are filled in here. The catalog stops at magnitude 7, so a sky darker than the class for limiting magnitude 7.0 (score 3) cannot be distinguished from that class. Replace these bounds once we have our own dark-site and downtown photos.",
+  "note": "Estimate, not a measurement of the Bortle scale. Naked-eye limiting magnitudes are from John E. Bortle, Sky & Telescope, February 2001. Classes 6–9 are single figures in that article; the steps between them are filled in here. The catalog stops at magnitude 7, so a sky darker than the class for limiting magnitude 7.0 (score 3) cannot be distinguished from that class. A bin needs at least 8 stars before it can set the limiting magnitude, so a few mismatches among the brightest stars cannot swing the score. Replace these bounds once we have our own dark-site and downtown photos.",
   "classes": [
     {"value": 1, "min_limiting_mag": 7.6},
     {"value": 2, "min_limiting_mag": 7.1},
@@ -16,6 +16,6 @@
     "exposure_s": [0.5, 15],
     "iso": [100, 6400]
   },
-  "min_bin_stars": 3,
+  "min_bin_stars": 8,
   "few_matched_stars": 8
 }

@@ -10,7 +10,7 @@ import json
 import astronomy
 import pytest
 
-from app.conditions import evaluate_conditions
+from app.conditions import altitudes_deg, evaluate_conditions
 
 BUFFALO_LAT = 43.0
 BUFFALO_LON = -78.79
@@ -47,6 +47,20 @@ def test_polaris_altitude_matches_observer_latitude():
         dec_deg=POLARIS_DEC_DEG,
     )
     assert result["field_center_alt_deg"] == pytest.approx(BUFFALO_LAT, abs=1.0)
+
+
+def test_altitudes_deg_matches_the_field_center():
+    alts = altitudes_deg(
+        BUFFALO_LAT, BUFFALO_LON, MIDNIGHT_UTC, [POLARIS_RA_DEG], [POLARIS_DEC_DEG]
+    )
+    result = evaluate_conditions(
+        BUFFALO_LAT,
+        BUFFALO_LON,
+        MIDNIGHT_UTC,
+        ra_deg=POLARIS_RA_DEG,
+        dec_deg=POLARIS_DEC_DEG,
+    )
+    assert float(alts[0]) == pytest.approx(result["field_center_alt_deg"], abs=1e-9)
 
 
 def test_low_altitude_false_near_zenith():

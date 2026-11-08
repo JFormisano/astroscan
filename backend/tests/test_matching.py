@@ -225,6 +225,86 @@ def math_hypot(dx, dy):
     return (dx * dx + dy * dy) ** 0.5
 
 
+# Achernar never rises from Buffalo (dec -57, latitude 43).
+ACHERNAR_HIP = 7588
+ACHERNAR_RA = 24.4283
+ACHERNAR_DEC = -57.2368
+MIZAR_HIP = 65378
+ALCOR_HIP = 65477
+DUBHE_HIP = 54061
+KOCHAB_HIP = 72607
+BUFFALO = (43.0, -78.79, "2026-11-08T05:00:00Z")
+
+
+def test_a_star_below_the_horizon_is_left_out_of_the_overlay():
+    header = make_tan_header(ACHERNAR_RA, ACHERNAR_DEC, scale_deg_per_px=0.02, width=200, height=200)
+    plain = matching.match_stars(header, 200, 200, [])
+    assert any(star["hip"] == ACHERNAR_HIP for star in plain["stars"])
+
+    hidden = matching.match_stars(header, 200, 200, [], lat=BUFFALO[0], lon=BUFFALO[1], taken_at=BUFFALO[2])
+    assert hidden["stars"] == []
+    assert hidden["constellations"] == []
+    assert hidden["stats"]["catalog_in_frame"] == 0
+
+
+def test_mizar_companion_cannot_take_its_detection():
+    catalog = matching.load_stars()
+    mizar = next(star for star in catalog if star["hip"] == MIZAR_HIP)
+    companion = min(
+        (star for star in catalog if star is not mizar),
+        key=lambda star: _sep_arcsec(mizar, star),
+    )
+    assert _sep_arcsec(mizar, companion) < 60
+    assert companion["mag"] > mizar["mag"]
+    header = make_tan_header(mizar["ra_deg"], mizar["dec_deg"], scale_deg_per_px=0.02)
+    wcs = matching._load_wcs(header)
+    cx, cy = matching._sky_to_image(wcs, companion["ra_deg"], companion["dec_deg"])
+    result = matching.match_stars(header, WIDTH, HEIGHT, [{"x": float(np.ravel(cx)[0]), "y": float(np.ravel(cy)[0])}])
+    by_hip = {star["hip"]: star for star in result["stars"]}
+    assert by_hip[MIZAR_HIP]["detected"] is True
+    assert companion["id"] not in {star["id"] for star in result["stars"]}
+    assert by_hip[ALCOR_HIP]["hip"] == ALCOR_HIP
+
+
+@pytest.mark.parametrize("hip", [DUBHE_HIP, KOCHAB_HIP])
+def test_bright_dipper_stars_match_past_the_old_four_pixel_radius(hip):
+    star = next(item for item in matching.load_stars() if item["hip"] == hip)
+    header = make_tan_header(star["ra_deg"], star["dec_deg"], scale_deg_per_px=0.02)
+    placed = matching.match_stars(header, WIDTH, HEIGHT, [])
+    target = next(item for item in placed["stars"] if item["hip"] == hip)
+    # 12 px is outside the old 4 px radius and outside the strict 8 px radius.
+    result = matching.match_stars(header, WIDTH, HEIGHT, [{"x": target["x"] + 12.0, "y": target["y"]}])
+    matched = next(item for item in result["stars"] if item["hip"] == hip)
+    assert matched["detected"] is True
+
+
+def test_a_faint_star_does_not_get_the_wide_radius():
+    matched = matching._assign_sources(
+        np.array([0.0, 100.0]),
+        np.array([0.0, 0.0]),
+        np.array([1.8, 5.5]),
+        np.array([[12.0, 0.0], [112.0, 0.0]]),
+        8.0,
+    )
+    assert matched.tolist() == [True, False]
+
+
+def test_a_star_on_bright_ground_is_left_out():
+    header = make_tan_header(SIRIUS_RA, SIRIUS_DEC)
+    dark = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
+    ground = np.full((HEIGHT, WIDTH, 3), 220, dtype=np.uint8)
+    on_sky = matching.match_stars(header, WIDTH, HEIGHT, [], image=dark)
+    on_ground = matching.match_stars(header, WIDTH, HEIGHT, [], image=ground)
+    assert any(star["hip"] == SIRIUS_HIP for star in on_sky["stars"])
+    assert all(star["hip"] != SIRIUS_HIP for star in on_ground["stars"])
+
+
+def _sep_arcsec(a, b):
+    dra = np.radians((a["ra_deg"] - b["ra_deg"]) * np.cos(np.radians(a["dec_deg"])))
+    ddec = np.radians(a["dec_deg"] - b["dec_deg"])
+    return float(np.degrees(np.hypot(dra, ddec)) * 3600.0)
+
+
 @pytest.mark.skipif(
     not (WCS_FIXTURE.exists() and CORR_FIXTURE.exists()),
     reason=(

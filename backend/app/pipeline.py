@@ -22,6 +22,7 @@ If matching or conditions raise, the problem is logged and what we have is retur
 import logging
 import math
 from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 
@@ -41,13 +42,16 @@ def analyze(
     taken_at_utc: str,
     image_url: str | None = None,
     exif: dict | None = None,
+    image_path: str | Path | None = None,
     on_step: Callable[[str], None] | None = None,
 ) -> dict:
-    """Return `solver_result` plus stars, constellations, planets and warnings. Never raises.
+    """Return `solver_result` plus stars, constellations, planets, warnings and a score. Never raises.
 
     `lat`/`lon` are the ~1 km rounded values and `taken_at_utc` an ISO 8601 string with a time zone
-    (the job's stored values). `exif` is the job's flags (exposure_s, iso, f_number) for the score's
-    confidence. A result without a WCS (the stub solver) is returned unchanged.
+    (the job's stored values). Those three are passed into matching so a catalog star below the
+    horizon is left out of the overlay. `image_path`, when set, is the stripped photo; stars sitting
+    on bright foreground are left out too. `exif` is the job's flags (exposure_s, iso, f_number) for
+    the score's confidence. A result without a WCS (the stub solver) is returned unchanged.
     """
     stats = solver_result.get("stats") or {}
     width, height = stats.get("image_width_px"), stats.get("image_height_px")
@@ -63,7 +67,16 @@ def analyze(
 
     try:
         wcs = matching._load_wcs(solver_result["wcs"])
-        overlay = matching.match_stars(wcs, width, height, solver_result.get("sources") or [])
+        overlay = matching.match_stars(
+            wcs,
+            width,
+            height,
+            solver_result.get("sources") or [],
+            lat=lat,
+            lon=lon,
+            taken_at=taken_at_utc,
+            image=image_path,
+        )
     except Exception:
         log.exception("star matching failed; returning the solver output without star names")
         return result

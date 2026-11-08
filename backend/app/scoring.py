@@ -18,7 +18,8 @@ _NAKED_EYE_MAG = 6.0
 _CONFIDENCE = ("high", "medium", "low")
 # The catalog ends at magnitude 7, so a measured limit of 7.0 is only a floor.
 # Classes darker than the one that matches 7.0 (score 3) cannot be told apart.
-_CATALOG_LIMIT_REASON = "sky darker than the catalog can measure"
+# A code, not a sentence. The results page accepts either form.
+_CATALOG_LIMIT_REASON = "catalog_limit"
 
 
 def score_sky(match_result, conditions, exif):

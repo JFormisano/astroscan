@@ -9,12 +9,12 @@ CLEAR = {"flags": {"twilight": False, "moon_up": False, "low_altitude": False}}
 
 
 def _stars(detected_before, faint=7.0):
-    """Four stars in each 0.5-mag bin. Stars fainter than detected_before are ghosts."""
+    """Eight stars in each 0.5-mag bin. Stars fainter than detected_before are ghosts."""
     stars = []
     edge = 0.0
     while edge < faint:
-        for step in range(4):
-            mag = edge + 0.1 + step * 0.05
+        for step in range(8):
+            mag = edge + 0.05 + step * 0.04
             stars.append({"mag": mag, "detected": mag < detected_before})
         edge = round(edge + 0.5, 1)
     return stars
@@ -45,7 +45,7 @@ def test_zero_stars_in_frame_has_no_score():
     assert result["limiting_mag_is_lower_bound"] is False
     assert result["pct_lost"] is None
     assert "few_matched_stars" in result["confidence_reasons"]
-    assert "sky darker than the catalog can measure" not in result["confidence_reasons"]
+    assert "catalog_limit" not in result["confidence_reasons"]
 
 
 def test_all_detected_stars_are_a_lower_bound():
@@ -56,7 +56,7 @@ def test_all_detected_stars_are_a_lower_bound():
     assert result["limiting_mag"] == 7.0
     assert result["value"] is not None
     assert result["pct_lost"] == 0
-    assert "sky darker than the catalog can measure" in result["confidence_reasons"]
+    assert "catalog_limit" in result["confidence_reasons"]
 
 
 def test_twilight_flag_lowers_confidence():
@@ -72,12 +72,28 @@ def test_sparse_bin_does_not_set_the_limiting_magnitude():
     stars = [{"mag": 0.2, "detected": False}]
     edge = 2.0
     while edge < 4.5:
-        for step in range(4):
-            stars.append({"mag": edge + 0.1 + step * 0.05, "detected": edge < 4.0})
+        for step in range(8):
+            stars.append({"mag": edge + 0.05 + step * 0.04, "detected": edge < 4.0})
         edge = round(edge + 0.5, 1)
     result = _score(stars)
     assert result["limiting_mag"] == 4.0
     assert result["value"] == 9
+
+
+def test_a_handful_of_bright_misses_does_not_set_the_limit():
+    # Four ghosts in the mag 2 bin used to force "faintest stars mag 2.5" and
+    # a score of 9. A bin that small is ignored; the filled, detected bins
+    # leave the limit at the faint edge of what was counted.
+    stars = [{"mag": 2.1 + 0.05 * i, "detected": False} for i in range(4)]
+    edge = 4.0
+    while edge < 6.0:
+        for step in range(8):
+            stars.append({"mag": edge + 0.02 + step * 0.04, "detected": True})
+        edge = round(edge + 0.5, 1)
+    result = _score(stars, matched=40)
+    assert result["limiting_mag"] == 6.0
+    assert result["limiting_mag_is_lower_bound"] is True
+    assert result["value"] == 5
 
 
 def test_score_is_json_serializable():

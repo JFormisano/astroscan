@@ -15,13 +15,13 @@ const bannerStyle = {
   padding: '12px 16px 0',
 }
 const pillStyle = {
-  background: '#141b33',
-  border: '1px solid #26304f',
+  background: 'rgba(8, 12, 22, 0.82)',
+  border: '1px solid rgba(228, 160, 74, 0.32)',
   borderRadius: 12,
   padding: '10px 12px',
   fontSize: '0.9rem',
   lineHeight: 1.45,
-  color: '#c9d3ee',
+  color: '#f6f3ec',
 }
 
 function SampleBanner({ name }) {
@@ -37,7 +37,7 @@ function SampleBanner({ name }) {
             {others.map((s, i) => (
               <span key={s.name}>
                 {i > 0 && ' · '}
-                <Link to={`/demo/${s.name}`} style={{ color: '#7aa2ff' }}>{s.label}</Link>
+                <Link to={`/demo/${s.name}`} style={{ color: '#e4a04a' }}>{s.label}</Link>
               </span>
             ))}
           </>
